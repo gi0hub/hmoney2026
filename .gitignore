@@ -1,0 +1,36 @@
+# Documentation
+documentation/*
+
+# Foundry / Solidity
+out/
+cache/
+broadcast/
+lib/
+contracts/lib/
+*~
+\#*
+*.swp
+*.lock
+
+# Node.js / Next.js
+node_modules/
+.next/
+build/
+dist/
+.pnp
+.pnp.js
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+coverage.json
