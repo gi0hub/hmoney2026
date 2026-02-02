@@ -12,6 +12,7 @@
     "@erc7824/nitrolite": "^0.5.3",
     "@lifi/wallet-management": "^3.22.4",
     "@lifi/widget": "^3.40.5",
+    "@rainbow-me/rainbowkit": "^2.2.10",
     "@tanstack/react-query": "^5.90.20",
     "framer-motion": "^12.29.2",
     "lucide-react": "^0.563.0",

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AuctionCard } from '@/components/ui/AuctionCard';
 import { TopUpSidebar } from '@/components/ui/TopUpSidebar';
 import { ToastProvider } from '@/components/ui/Toast';
@@ -8,15 +8,49 @@ import { WinnerHistory } from '@/components/ui/WinnerHistory';
 import { TradingBackground } from '@/components/ui/TradingBackground';
 import { CatalogGrid } from '@/components/ui/CatalogGrid';
 import { TShirtVisual } from '@/components/ui/TShirtVisual';
+// import { IdentityVisual } from '@/components/ui/IdentityVisual'; // Kept for reference
 import { Wallet } from 'lucide-react';
 import { useYellowAuction } from '@/hooks/useYellowAuction';
+// import { WalletConnect } from '@/components/ui/WalletConnect'; // Removed
+import { ConnectButton, useConnectModal, useChainModal } from '@rainbow-me/rainbowkit';
+import { useAccount } from 'wagmi';
 
 export default function Home() {
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
-  const [selectedItemId, setSelectedItemId] = useState<number>(100); // Default to item 100 or 1
+  const [selectedItemId, setSelectedItemId] = useState<number>(100);
+
+  // Wallet Hooks
+  const { isConnected, chain } = useAccount();
+  const { openConnectModal } = useConnectModal();
+  const { openChainModal } = useChainModal();
 
   // Hook usage for gasless bidding - Hybrid Architecture
   const { channelState, channelId, credits, claimCreditsAndOpenChannel, signBid, isSigning, isWrongNetwork } = useYellowAuction();
+
+  // --- Dynamic Timer Logic ---
+  // Store end timestamps (mock) for different items to make them distinct
+  const [expiryTimes, setExpiryTimes] = useState<Record<number, number>>({
+    100: 300, // 5 mins
+    101: 120, // 2 mins
+    102: 600, // 10 mins
+  });
+
+  const [timeLeft, setTimeLeft] = useState(300);
+
+  // Countdown Effect
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Switch timer when item changes
+  useEffect(() => {
+    // If no specific time set, default to 5 mins + randomization based on ID
+    const specificTime = expiryTimes[selectedItemId] || (300 + (selectedItemId % 10) * 60);
+    setTimeLeft(specificTime);
+  }, [selectedItemId]);
 
   // Mock Data (Credits)
   const [mockBids, setMockBids] = useState([
@@ -39,9 +73,24 @@ export default function Home() {
    * Triggers the off-chain bidding process.
    */
   const handlePlaceBid = async () => {
-    // In a real scenario, check if channel is open, if not -> prompt deposit
+    // 1. Wallet Check: Must be connected
+    if (!isConnected) {
+      if (openConnectModal) {
+        openConnectModal();
+      }
+      return;
+    }
+
+    // 2. Network Check: Must be on Sepolia for bidding
+    if (chain?.id !== 11155111) {
+      if (openChainModal) {
+        openChainModal();
+      }
+      return;
+    }
+
+    // 3. Channel Check: Must have credits/channel open
     if (channelState === 'IDLE' || channelState === 'DEPOSITING') {
-      // Open sidebar to top up first
       setIsTopUpOpen(true);
       return;
     }
@@ -65,6 +114,11 @@ export default function Home() {
     }
   };
 
+  // Determine Button Label
+  let actionLabel = "Place Bid";
+  if (!isConnected) actionLabel = "Connect Wallet";
+  else if (chain?.id !== 11155111) actionLabel = "Switch to Sepolia";
+
   return (
     <main className="min-h-screen bg-[var(--background)] selection:bg-[var(--primary)] selection:text-black overflow-x-hidden relative">
 
@@ -86,13 +140,17 @@ export default function Home() {
           </span>
         </div>
 
-        <button
-          onClick={() => setIsTopUpOpen(true)}
-          className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition-all hover:border-[var(--primary)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
-        >
-          <Wallet size={16} />
-          <span>Credits: {credits}</span>
-        </button>
+        <div className="flex items-center gap-4">
+          <ConnectButton showBalance={false} />
+
+          <button
+            onClick={() => setIsTopUpOpen(true)}
+            className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition-all hover:border-[var(--primary)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
+          >
+            <Wallet size={16} />
+            <span>Credits: {credits}</span>
+          </button>
+        </div>
       </nav>
 
       {/* Main Layout */}
@@ -106,25 +164,27 @@ export default function Home() {
                 Item #{selectedItemId.toString().padStart(3, '0')}
               </span>
               <br />
-              <span className="text-[var(--primary)]">Cyber-Tee v3</span>
+              <span className="text-[var(--primary)]">Cyber-Tee + Identity</span>
             </h1>
             <p className="max-w-md text-zinc-400">
-              Limited edition physical merch with serigraphed ENS.
-              Authenticity verified on-chain.
+              Limited Edition Physical Merch.
+              Includes ownership of <strong>{selectedItemId}.hyperdrop.eth</strong>.
+              <br />
+              Authenticated on ENS.
             </p>
           </div>
 
           <div className="w-full max-w-md">
             <AuctionCard
               itemId={selectedItemId.toString()}
-              itemName={`Cyber-Tee v3 #${selectedItemId}`}
+              itemName={`Cyber-Tee #${selectedItemId}`}
               currentBid={mockBids[0]?.amount.replace(' Credits', '') || "500"}
-              timeLeftSeconds={45} // This would be dynamic
-              totalTimeSeconds={300}
+              timeLeftSeconds={timeLeft}
+              totalTimeSeconds={600} // Mock total
               visual={<TShirtVisual number={selectedItemId} />}
               onPlaceBid={handlePlaceBid}
               isPlacingBid={isSigning}
-              actionLabel={isWrongNetwork ? "Switch to Sepolia" : "Place Bid"}
+              actionLabel={actionLabel}
             />
           </div>
         </div>

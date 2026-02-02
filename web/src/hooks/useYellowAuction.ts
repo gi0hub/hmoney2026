@@ -100,7 +100,11 @@ export function useYellowAuction() {
 
             // 3. Create/Resume Channel
             // In a real app, we'd derive channel ID from participants
-            const mockChannelId = `0xchn_${Math.floor(Math.random() * 10000).toString(16).padEnd(64, '0')}`;
+            // 3. Create/Resume Channel
+            // In a real app, we'd derive channel ID from participants
+            // FIX: Must be exactly 32 bytes (64 hex chars) for EIP-712 strict checking
+            const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+            const mockChannelId = `0x${randomHex}`;
             setChannelId(mockChannelId);
             setChannelState('OPEN');
 
@@ -139,6 +143,12 @@ export function useYellowAuction() {
             return;
         }
 
+        // 4. Insufficient Funds Check
+        if (credits < bidAmountCredits) {
+            alert(`Insufficient Credits! You have ${credits}, need ${bidAmountCredits}.`);
+            return;
+        }
+
         try {
             setIsSigning(true);
 
@@ -160,7 +170,7 @@ export function useYellowAuction() {
                 signature = "0xmock_signature_demo";
             }
 
-            console.log('[Yellow] Bid Signed (Off-Chain):', signature);
+            console.log(`[Yellow] Bid Signed for Identity (Off-Chain):`, signature);
             setCredits(prev => prev - bidAmountCredits);
 
             setIsSigning(false);

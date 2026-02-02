@@ -37,7 +37,7 @@ contract HyperDropProtocol is ERC1155, Ownable {
      * @dev Only callable by the auction operator (Yellow Network node).
      * @param winner The address of the auction winner.
      * @param assetId The ID of the asset to mint.
-     * @param subnameLabel The label for the subname (e.g., "item10" for item10.hyperdrop.eth).
+     * @param subnameLabel The label for the subname (e.g., "100" for 100.hyperdrop.eth).
      */
     function settleAuction(
         address winner,

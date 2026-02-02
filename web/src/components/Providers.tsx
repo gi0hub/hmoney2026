@@ -2,21 +2,16 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
-import { WagmiProvider, createConfig, http } from 'wagmi';
+import { WagmiProvider } from 'wagmi';
 import { base, sepolia, mainnet, polygon, optimism, arbitrum } from 'wagmi/chains';
-import { injected } from 'wagmi/connectors';
+import { getDefaultConfig, RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
+import '@rainbow-me/rainbowkit/styles.css';
 
-export const config = createConfig({
+export const config = getDefaultConfig({
+    appName: 'HyperDrop',
+    projectId: 'YOUR_PROJECT_ID', // TODO: Get a real Project ID from WalletConnect
     chains: [mainnet, sepolia, base, polygon, optimism, arbitrum],
-    transports: {
-        [mainnet.id]: http(),
-        [sepolia.id]: http(),
-        [base.id]: http(),
-        [polygon.id]: http(),
-        [optimism.id]: http(),
-        [arbitrum.id]: http(),
-    },
-    connectors: [injected()],
+    ssr: true, // If your dApp uses server side rendering (SSR)
 });
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -25,7 +20,9 @@ export function Providers({ children }: { children: ReactNode }) {
     return (
         <WagmiProvider config={config}>
             <QueryClientProvider client={queryClient}>
-                {children}
+                <RainbowKitProvider theme={darkTheme()}>
+                    {children}
+                </RainbowKitProvider>
             </QueryClientProvider>
         </WagmiProvider>
     );

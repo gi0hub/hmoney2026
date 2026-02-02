@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+import "../src/HyperDropProtocol.sol";
+
+// Mock NameWrapper to verify interactions
+contract MockNameWrapper is INameWrapper {
+    event SubnodeRecordSet(bytes32 node, string label, address owner);
+
+    function setSubnodeRecord(
+        bytes32 node,
+        string calldata label,
+        address owner,
+        address /*resolver*/,
+        uint64 /*ttl*/,
+        uint32 /*fuses*/,
+        uint64 /*expiry*/
+    ) external override returns (bytes32) {
+        emit SubnodeRecordSet(node, label, owner);
+        // Return a mock nodehash (not real logic, just for interface compliance)
+        return keccak256(abi.encodePacked(node, keccak256(bytes(label))));
+    }
+}
+
+contract HyperDropTest is Test {
+    HyperDropProtocol public hyperDrop;
+    MockNameWrapper public mockNameWrapper;
+
+    address public owner = address(1);
+    address public winner = address(2);
+    bytes32 public rootNode = keccak256(abi.encodePacked("hyperdrop.eth"));
+
+    event TransferSingle(
+        address indexed operator,
+        address indexed from,
+        address indexed to,
+        uint256 id,
+        uint256 value
+    );
+
+    function setUp() public {
+        mockNameWrapper = new MockNameWrapper();
+
+        vm.prank(owner);
+        hyperDrop = new HyperDropProtocol(
+            "https://api.hyperdrop.xyz/item/{id}.json",
+            owner,
+            rootNode,
+            address(mockNameWrapper)
+        );
+    }
+
+    function testSettleAuction() public {
+        uint256 assetId = 100;
+        string memory label = "100";
+
+        // Expect calls (Order matters: Mint first, then ENS)
+        vm.expectEmit(true, true, true, true, address(hyperDrop));
+        emit TransferSingle(owner, address(0), winner, assetId, 1);
+
+        vm.expectEmit(true, true, true, true, address(mockNameWrapper));
+        emit MockNameWrapper.SubnodeRecordSet(rootNode, label, winner);
+
+        // Execute as owner
+        vm.prank(owner);
+        hyperDrop.settleAuction(winner, assetId, label);
+
+        // Verify Balances
+        assertEq(hyperDrop.balanceOf(winner, assetId), 1);
+    }
+
+    function testRevertSettleAuctionNotOwner() public {
+        uint256 assetId = 100;
+        string memory label = "100";
+
+        // Expect Revert (OwnableUnauthorizedAccount)
+        // In OpenZeppelin 5.0, error is custom: error OwnableUnauthorizedAccount(address account);
+        bytes memory expectedError = abi.encodeWithSelector(
+            Ownable.OwnableUnauthorizedAccount.selector,
+            winner
+        );
+        vm.expectRevert(expectedError);
+
+        // Execute as non-owner (winner)
+        vm.prank(winner);
+        hyperDrop.settleAuction(winner, assetId, label);
+    }
+}
