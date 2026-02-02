@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { TShirtVisual } from './TShirtVisual';
 
 interface CatalogGridProps {
     onSelectItem: (id: number) => void;
@@ -8,7 +9,7 @@ interface CatalogGridProps {
 }
 
 export function CatalogGrid({ onSelectItem, selectedId }: CatalogGridProps) {
-    // Generate items 1-100
+    //  items 1-100
     const items = Array.from({ length: 100 }, (_, i) => i + 1);
 
     return (
@@ -55,11 +56,11 @@ export function CatalogGrid({ onSelectItem, selectedId }: CatalogGridProps) {
                                 #{id.toString().padStart(3, '0')}
                             </span>
 
-                            {/* Mock Image Placeholder */}
-                            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold
-                  ${isSelected ? 'bg-[var(--primary)] text-black' : 'bg-white/5 text-zinc-600 group-hover:bg-white/10 group-hover:text-zinc-300'}
+                            {/* Image Placeholder */}
+                            <div className={`w-full aspect-square rounded-lg flex items-center justify-center p-2 mb-2
+                  ${isSelected ? 'bg-[var(--primary)]/5' : 'bg-white/5 group-hover:bg-white/10'}
                `}>
-                                {id}
+                                <TShirtVisual number={id} primaryColor={isSelected ? "#06b6d4" : "#52525b"} />
                             </div>
 
                             {/* Status Dot */}

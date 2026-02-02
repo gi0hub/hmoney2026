@@ -3,13 +3,17 @@
 import { motion } from 'framer-motion';
 import { Timer, Zap } from 'lucide-react';
 
+// ... imports
 interface AuctionCardProps {
     itemId: string;
     itemName: string;
     currentBid: string;
     timeLeftSeconds: number;
     totalTimeSeconds: number;
-    imageUrl?: string; // Placeholder for now
+    imageUrl?: string;
+    visual?: React.ReactNode;
+    onPlaceBid?: () => void;
+    isPlacingBid?: boolean;
 }
 
 export function AuctionCard({
@@ -19,6 +23,9 @@ export function AuctionCard({
     timeLeftSeconds,
     totalTimeSeconds,
     imageUrl = "https://placehold.co/600x400/1a1a1a/06b6d4?text=Exclusive+Merch",
+    visual,
+    onPlaceBid,
+    isPlacingBid = false,
 }: AuctionCardProps) {
     // Calculate progress percentage for the bar
     const progress = (timeLeftSeconds / totalTimeSeconds) * 100;
@@ -37,15 +44,21 @@ export function AuctionCard({
       `}
         >
             {/* Image Section */}
-            <div className="relative h-64 w-full bg-zinc-900/50">
-                <img
-                    src={imageUrl}
-                    alt={itemName}
-                    className="h-full w-full object-cover opacity-80 transition-opacity duration-300 hover:opacity-100"
-                />
+            <div className="relative h-64 w-full bg-zinc-900/50 flex items-center justify-center overflow-hidden">
+                {visual ? (
+                    <div className="w-full h-full p-8 transform hover:scale-105 transition-transform duration-500">
+                        {visual}
+                    </div>
+                ) : (
+                    <img
+                        src={imageUrl}
+                        alt={itemName}
+                        className="h-full w-full object-cover opacity-80 transition-opacity duration-300 hover:opacity-100"
+                    />
+                )}
 
                 {/* Status Badge */}
-                <div className="absolute top-4 right-4 flex items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-xs font-bold uppercase tracking-wider text-white backdrop-blur-md">
+                <div className="absolute top-4 right-4 flex items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-xs font-bold uppercase tracking-wider text-white backdrop-blur-md z-10">
                     <span className={`h-2 w-2 rounded-full ${timeLeftSeconds > 0 ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
                     {timeLeftSeconds > 0 ? 'Live Auction' : 'Ended'}
                 </div>
@@ -92,12 +105,20 @@ export function AuctionCard({
 
                 {/* Action Button */}
                 <button
-                    className="group relative mt-2 w-full overflow-hidden rounded-xl bg-white text-black transition-all hover:scale-[1.02] hover:bg-[var(--primary)] hover:shadow-[0_0_20px_var(--primary-glow)] disabled:opacity-50 disabled:hover:scale-100"
-                    disabled={timeLeftSeconds <= 0}
+                    onClick={onPlaceBid}
+                    className="group relative mt-2 w-full overflow-hidden rounded-xl bg-white text-black transition-all hover:scale-[1.02] hover:bg-[var(--primary)] hover:shadow-[0_0_20px_var(--primary-glow)] disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed"
+                    disabled={timeLeftSeconds <= 0 || isPlacingBid}
                 >
-                    <div className="relative z-10 flex items-center justify-center py-4 text-sm font-bold uppercase tracking-widest">
-                        Place Bid
-                    </div>
+                    {isPlacingBid ? (
+                        <div className="flex items-center justify-center gap-2 py-4">
+                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-black border-t-transparent" />
+                            <span className="text-sm font-bold uppercase tracking-widest">Signing...</span>
+                        </div>
+                    ) : (
+                        <div className="relative z-10 flex items-center justify-center py-4 text-sm font-bold uppercase tracking-widest">
+                            Place Bid
+                        </div>
+                    )}
                 </button>
             </div>
         </motion.div>
