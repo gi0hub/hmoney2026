@@ -14,6 +14,7 @@ interface AuctionCardProps {
     visual?: React.ReactNode;
     onPlaceBid?: () => void;
     isPlacingBid?: boolean;
+    actionLabel?: string;
 }
 
 export function AuctionCard({
@@ -26,6 +27,7 @@ export function AuctionCard({
     visual,
     onPlaceBid,
     isPlacingBid = false,
+    actionLabel = "Place Bid",
 }: AuctionCardProps) {
     // Calculate progress percentage for the bar
     const progress = (timeLeftSeconds / totalTimeSeconds) * 100;
@@ -88,7 +90,7 @@ export function AuctionCard({
                             Current Bid
                         </p>
                         <p className="mt-1 text-xl font-bold text-[var(--primary)] text-shadow-glow">
-                            {currentBid} ETH
+                            {currentBid} Credits
                         </p>
                     </div>
 
@@ -116,7 +118,7 @@ export function AuctionCard({
                         </div>
                     ) : (
                         <div className="relative z-10 flex items-center justify-center py-4 text-sm font-bold uppercase tracking-widest">
-                            Place Bid
+                            {actionLabel}
                         </div>
                     )}
                 </button>

@@ -15,19 +15,19 @@ export default function Home() {
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<number>(100); // Default to item 100 or 1
 
-  // Hook usage for gasless bidding - connecting the UI to the signing logic
-  const { channelState, deposit, signBid, isSigning } = useYellowAuction();
+  // Hook usage for gasless bidding - Hybrid Architecture
+  const { channelState, channelId, credits, claimCreditsAndOpenChannel, signBid, isSigning, isWrongNetwork } = useYellowAuction();
 
-  // Mock Data
+  // Mock Data (Credits)
   const [mockBids, setMockBids] = useState([
-    { id: '1', user: 'GIorgio.eth', amount: '0.45 ETH', hash: '0x123' },
-    { id: '2', user: 'Gambler.eth', amount: '0.50 ETH', hash: '0x456' },
+    { id: '1', user: 'GIorgio.eth', amount: '450 Credits', hash: '0x123' },
+    { id: '2', user: 'Gambler.eth', amount: '500 Credits', hash: '0x456' },
   ]);
 
-  // Mock History Logic (Should filter based on item in real app)
+  // Mock History Logic
   const mockWinners = [
-    { id: '101', ens: 'Pascal.eth', price: '0.9 ETH', date: '2h ago', txHash: '0xabc' },
-    { id: '100', ens: 'Kartik.eth', price: '1.2 ETH', date: '5h ago', txHash: '0xdef' },
+    { id: '101', ens: 'Pascal.eth', price: '900 Credits', date: '2h ago', txHash: '0xabc' },
+    { id: '100', ens: 'Kartik.eth', price: '1200 Credits', date: '5h ago', txHash: '0xdef' },
   ];
 
   const handleSelectItem = (id: number) => {
@@ -37,19 +37,32 @@ export default function Home() {
 
   /**
    * Triggers the off-chain bidding process.
-   * We need to increment the current bid slightly for the signing payload.
    */
   const handlePlaceBid = async () => {
     // In a real scenario, check if channel is open, if not -> prompt deposit
-    if (channelState === 'IDLE') {
+    if (channelState === 'IDLE' || channelState === 'DEPOSITING') {
       // Open sidebar to top up first
       setIsTopUpOpen(true);
       return;
     }
 
-    // Propose a new bid (mock increment)
-    await signBid('0.55');
-    // Here we would optimistic update the UI or wait for the websocket confirmation
+    // Propose a new bid (Current Highest + 50 Credits)
+    // In a real app, strict validation against the latest state
+    const currentHighest = parseInt(mockBids[0]?.amount.replace(' Credits', '') || "500");
+    const nextBid = currentHighest + 50;
+
+    const signature = await signBid(nextBid);
+
+    if (signature) {
+      // Optimistic Update
+      const newBid = {
+        id: Date.now().toString(),
+        user: 'You (Anon)', // Or derive from address
+        amount: `${nextBid} Credits`,
+        hash: '0xpending...'
+      };
+      setMockBids([newBid, ...mockBids]);
+    }
   };
 
   return (
@@ -78,7 +91,7 @@ export default function Home() {
           className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition-all hover:border-[var(--primary)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
         >
           <Wallet size={16} />
-          <span>Credits: {channelState === 'OPEN' ? '1.00' : '0.00'} ETH</span>
+          <span>Credits: {credits}</span>
         </button>
       </nav>
 
@@ -105,12 +118,13 @@ export default function Home() {
             <AuctionCard
               itemId={selectedItemId.toString()}
               itemName={`Cyber-Tee v3 #${selectedItemId}`}
-              currentBid="0.50"
+              currentBid={mockBids[0]?.amount.replace(' Credits', '') || "500"}
               timeLeftSeconds={45} // This would be dynamic
               totalTimeSeconds={300}
               visual={<TShirtVisual number={selectedItemId} />}
               onPlaceBid={handlePlaceBid}
               isPlacingBid={isSigning}
+              actionLabel={isWrongNetwork ? "Switch to Sepolia" : "Place Bid"}
             />
           </div>
         </div>
@@ -121,7 +135,7 @@ export default function Home() {
           <div className="rounded-3xl border border-white/10 bg-black/40 p-6 backdrop-blur-md">
             <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-500">Live Activity</h3>
             <div className="flex flex-col gap-4">
-              {mockBids.slice(0, 2).map((b) => (
+              {mockBids.slice(0, 3).map((b) => (
                 <div key={b.id} className="flex items-center justify-between border-b border-white/5 pb-4 last:border-0 last:pb-0">
                   <div className="flex items-center gap-3">
                     <div className="h-8 w-8 rounded-full bg-gradient-to-br from-cyan-600 to-blue-800" />
@@ -148,33 +162,11 @@ export default function Home() {
       </div>
 
       {/* Overlays */}
-      <TopUpSidebar isOpen={isTopUpOpen} onClose={() => setIsTopUpOpen(false)}>
-        <div className="flex h-full flex-col items-center justify-center text-center px-4">
-          <h3 className="text-xl font-bold text-white mb-2">Top Up Channel</h3>
-          <p className="text-zinc-400 mb-6 text-sm">
-            Deposit funds to enable high-frequency gasless bidding.
-          </p>
-
-          {channelState === 'IDLE' && (
-            <button
-              onClick={() => deposit('1.0')}
-              className="w-full rounded-xl bg-[var(--primary)] text-black font-bold py-3 hover:shadow-[0_0_20px_var(--primary-glow)] transition-all"
-            >
-              Deposit 1.0 ETH
-            </button>
-          )}
-
-          {channelState === 'DEPOSITING' && (
-            <div className="text-[var(--primary)] animate-pulse">Depositing on-chain... wait.</div>
-          )}
-
-          {channelState === 'OPEN' && (
-            <div className="text-green-500 font-bold border border-green-500/20 bg-green-500/10 px-4 py-2 rounded-lg">
-              Channel Open & Ready
-            </div>
-          )}
-        </div>
-      </TopUpSidebar>
+      <TopUpSidebar
+        isOpen={isTopUpOpen}
+        onClose={() => setIsTopUpOpen(false)}
+        onOpenChannel={(amount) => claimCreditsAndOpenChannel(amount)}
+      />
 
       <ToastProvider messages={[]} /* We can wire this to real events later */ />
     </main>
