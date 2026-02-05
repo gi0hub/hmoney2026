@@ -8,35 +8,76 @@ interface CatalogGridProps {
     selectedId: number;
 }
 
-export function CatalogGrid({ onSelectItem, selectedId }: CatalogGridProps) {
+// ... imports
+import { useState } from 'react';
+
+interface CatalogGridProps {
+    onSelectItem: (id: number) => void;
+    selectedId: number;
+    itemStatuses?: Record<string, 'live' | 'sold'>;
+}
+
+export function CatalogGrid({ onSelectItem, selectedId, itemStatuses = {} }: CatalogGridProps) {
     //  items 1-100
-    const items = Array.from({ length: 100 }, (_, i) => i + 1);
+    const allItems = Array.from({ length: 100 }, (_, i) => i + 1);
+
+    type FilterType = 'ALL' | 'LIVE' | 'SOLD';
+    const [filter, setFilter] = useState<FilterType>('ALL');
+
+    const filteredItems = allItems.filter(id => {
+        if (filter === 'ALL') return true;
+        // Default to 'live' if not in statuses (for demo purposes)
+        const status = itemStatuses[id.toString()] || 'live';
+        if (filter === 'LIVE') return status === 'live';
+        if (filter === 'SOLD') return status === 'sold';
+        return true;
+    });
 
     return (
         <div className="w-full">
             <div className="flex items-center justify-between mb-6">
                 <h3 className="text-2xl font-bold text-white tracking-tight">
-                    Collection Catalog <span className="text-zinc-500 text-lg font-normal">({items.length} Items)</span>
+                    Collection Catalog <span className="text-zinc-500 text-lg font-normal">({filteredItems.length} Items)</span>
                 </h3>
 
-                {/* Filters / Sort (Visual only for now) */}
+                {/* Filters */}
                 <div className="flex gap-2">
-                    <button className="px-3 py-1 text-xs font-bold uppercase tracking-wider text-[var(--primary)] border border-[var(--primary)] rounded bg-[var(--primary)]/10">
+                    <button
+                        onClick={() => setFilter('ALL')}
+                        className={`px-3 py-1 text-xs font-bold uppercase tracking-wider border rounded transition-colors
+                        ${filter === 'ALL'
+                                ? 'text-[var(--primary)] border-[var(--primary)] bg-[var(--primary)]/10'
+                                : 'text-zinc-500 border-white/10 hover:text-white'}`}
+                    >
                         All
                     </button>
-                    <button className="px-3 py-1 text-xs font-bold uppercase tracking-wider text-zinc-500 border border-white/10 rounded hover:text-white transition-colors">
+                    <button
+                        onClick={() => setFilter('LIVE')}
+                        className={`px-3 py-1 text-xs font-bold uppercase tracking-wider border rounded transition-colors
+                        ${filter === 'LIVE'
+                                ? 'text-[var(--primary)] border-[var(--primary)] bg-[var(--primary)]/10'
+                                : 'text-zinc-500 border-white/10 hover:text-white'}`}
+                    >
                         Live
                     </button>
-                    <button className="px-3 py-1 text-xs font-bold uppercase tracking-wider text-zinc-500 border border-white/10 rounded hover:text-white transition-colors">
+                    <button
+                        onClick={() => setFilter('SOLD')}
+                        className={`px-3 py-1 text-xs font-bold uppercase tracking-wider border rounded transition-colors
+                        ${filter === 'SOLD'
+                                ? 'text-[var(--primary)] border-[var(--primary)] bg-[var(--primary)]/10'
+                                : 'text-zinc-500 border-white/10 hover:text-white'}`}
+                    >
                         Sold
                     </button>
                 </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
-                {items.map((id) => {
+                {filteredItems.map((id) => {
                     const isSelected = selectedId === id;
-                    const isLive = id === selectedId; // Mock logic: selected is "live"
+                    // Check actual passed status
+                    const status = itemStatuses[id.toString()] || 'live';
+                    const isLive = status === 'live';
 
                     return (
                         <motion.button
@@ -44,6 +85,7 @@ export function CatalogGrid({ onSelectItem, selectedId }: CatalogGridProps) {
                             onClick={() => onSelectItem(id)}
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
+                            layout // Animates layout changes during filtering
                             className={`relative aspect-square rounded-xl border p-2 flex flex-col items-center justify-between transition-all group
                  ${isSelected
                                     ? 'bg-[var(--primary)]/10 border-[var(--primary)] shadow-[0_0_15px_var(--primary-glow)]'
@@ -65,7 +107,7 @@ export function CatalogGrid({ onSelectItem, selectedId }: CatalogGridProps) {
 
                             {/* Status Dot */}
                             <div className="w-full flex justify-end">
-                                <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-zinc-800'}`} />
+                                <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
                             </div>
                         </motion.button>
                     );
@@ -74,3 +116,4 @@ export function CatalogGrid({ onSelectItem, selectedId }: CatalogGridProps) {
         </div>
     );
 }
+

@@ -1,6 +1,7 @@
 'use client';
 
-import { LiFiWidget, WidgetConfig } from '@lifi/widget';
+import { LiFiWidget, WidgetConfig, widgetEvents, WidgetEvent } from '@lifi/widget';
+import { useEffect } from 'react';
 
 const widgetConfig: WidgetConfig = {
     integrator: 'hyperdrop-hackathon',
@@ -22,29 +23,24 @@ interface LiFiWidgetComponentProps {
 }
 
 export function LiFiWidgetComponent({ onSuccess }: LiFiWidgetComponentProps) {
-    const configWithCallback: WidgetConfig = {
-        ...widgetConfig,
-        // Li.Fi widget callbacks can be tricky in the react component wrapper, 
-        // relying on the wrapper's exposed specialized hooks or event listeners is often safer.
-        // However, standard config might support generic hooks.
-        // For hackathon speed, we assume the wrapper logic or simple user manual verification is best 
-        // IF the callback isn't exposed directly.
-        // Let's trying passing it if supported or leaving it for the parent to handle via context.
-    };
+    useEffect(() => {
+        const handleRouteExecutionCompleted = (route: any) => {
+            console.log("LiFi Route Completed:", route);
+            if (onSuccess) onSuccess(route);
+        };
 
-    // Note: The @lifi/widget React component exposes callbacks via props in newer versions
-    // Checking docs: <LiFiWidget config={...} onRouteExecutionCompleted={...} />
+        widgetEvents.on(WidgetEvent.RouteExecutionCompleted, handleRouteExecutionCompleted);
+
+        return () => {
+            widgetEvents.off(WidgetEvent.RouteExecutionCompleted, handleRouteExecutionCompleted);
+        };
+    }, [onSuccess]);
 
     return (
         <div className="w-full h-full flex flex-col items-center justify-start pt-4">
-            {/* @ts-ignore - Assuming standard callback existence for hackathon MVP */}
             <LiFiWidget
                 config={widgetConfig}
                 integrator="hyperdrop-hackathon"
-                onRouteExecutionCompleted={(route) => {
-                    console.log("LiFi Route Completed:", route);
-                    if (onSuccess) onSuccess(route);
-                }}
             />
         </div>
     );

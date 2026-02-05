@@ -54,6 +54,34 @@ export default function Home() {
     }, {
       onSuccess: (hash) => {
         alert(`Settlement Triggered! Tx: ${hash}`);
+
+        // Optimistic Update: Mark as Settled & Ended (Moves to Sold Tab)
+        setAuctionStates(prev => {
+          const current = prev[selectedItemId];
+          if (!current) return prev;
+
+          const highestBid = current.bids[0];
+          const winnerInfo = highestBid
+            ? {
+              id: highestBid.id,
+              ens: highestBid.user,
+              price: highestBid.amount,
+              date: 'Just now',
+              txHash: hash
+            }
+            : current.winner;
+
+          return {
+            ...prev,
+            [selectedItemId]: {
+              ...current,
+              isSettled: true,
+              isEnded: true, // Ensure it's marked ended to move to SOLD tab
+              settlementTx: hash,
+              winner: winnerInfo
+            }
+          };
+        });
       },
       onError: (err) => {
         console.error(err);
@@ -62,66 +90,194 @@ export default function Home() {
     });
   };
 
-  // --- Persistent Timer Logic ---
+  // --- Independent Auction State Management ---
+  type Bid = { id: string; user: string; amount: string; hash: string };
+  type AuctionState = {
+    bids: Bid[];
+    winner?: { id: string; ens: string; price: string; date: string; txHash: string };
+    isEnded: boolean;
+    isSettled: boolean; // New: finalized on-chain
+    settlementTx?: string; // New: tx hash
+    endTime: number; // Persisted end time
+  };
+
+  const [auctionStates, setAuctionStates] = useState<Record<number, AuctionState>>({
+    // Initial State including the "Used" Auction #3
+    3: {
+      bids: [
+        { id: '1', user: 'Tester.eth', amount: '850 Credits', hash: '0x333' }
+      ],
+      isEnded: true,
+      isSettled: true,
+      settlementTx: '0x9c5991246ab77ebe00dd3a85ddb94f3e0e1e90751c94614ce58ab9b0d70cd52b',
+      winner: { id: '3', ens: 'Tester.eth', price: '850 Credits', date: '1d ago', txHash: '0x333' },
+      endTime: Date.now() - 10000 // Already ended
+    },
+    100: {
+      bids: [
+        { id: '1', user: 'GIorgio.eth', amount: '450 Credits', hash: '0x123' },
+        { id: '2', user: 'Gambler.eth', amount: '500 Credits', hash: '0x456' },
+      ],
+      isEnded: false,
+      isSettled: false,
+      endTime: 0 // Will be set by effect if 0
+    }
+  });
+
+  // --- Persistence Logic ---
+  useEffect(() => {
+    // 1. Load from LocalStorage
+    try {
+      const stored = localStorage.getItem('hyperdrop_auction_states');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+
+        // MIGRATION / ENFORCEMENT FIX:
+        // Ensure Auction #3 always has the correct hardcoded settlement hash for this demo
+        // even if local storage has the old "0xabc..." one.
+        if (parsed[3]) {
+          parsed[3].settlementTx = '0x9c5991246ab77ebe00dd3a85ddb94f3e0e1e90751c94614ce58ab9b0d70cd52b';
+          parsed[3].isSettled = true; // Ensure it stays settled
+        }
+
+        setAuctionStates(prev => ({ ...prev, ...parsed }));
+      }
+    } catch (e) {
+      console.error("Failed to load auction states", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    // 2. Save to LocalStorage
+    if (Object.keys(auctionStates).length > 0) {
+      localStorage.setItem('hyperdrop_auction_states', JSON.stringify(auctionStates));
+    }
+  }, [auctionStates]);
+
+  // Helper to get current auction state safely
+  const currentAuction = auctionStates[selectedItemId] || {
+    bids: [],
+    isEnded: false,
+    isSettled: false,
+    endTime: 0
+  };
+
+  // --- Persistent Timer Logic (Per Auction) ---
   const [timeLeft, setTimeLeft] = useState(0);
 
-  // Initialize or Load Timer
   useEffect(() => {
-    const storageKey = `hyperdrop_auction_end_${selectedItemId}`;
-    const storedEnd = localStorage.getItem(storageKey);
-    let endTime: number;
-
-    if (storedEnd) {
-      endTime = parseInt(storedEnd);
-    } else {
-      // 11 Days in milliseconds
-      const duration = 11 * 24 * 60 * 60 * 1000;
-      endTime = Date.now() + duration;
-      localStorage.setItem(storageKey, endTime.toString());
+    // If it's the "Already Ended" auction (like #3), just lock it
+    if (currentAuction.isEnded) {
+      setTimeLeft(0);
+      return;
     }
 
-    // Update function to calculate clean seconds remaining
+    const storageKey = `hyperdrop_auction_end_${selectedItemId}`;
+    const storedEnd = localStorage.getItem(storageKey);
+    let targetTime = currentAuction.endTime;
+
+    // Initialize time if not set in state or storage
+    if (targetTime === 0) {
+      if (storedEnd) {
+        targetTime = parseInt(storedEnd);
+      } else {
+        // 11 Days default for new visits
+        const duration = 11 * 24 * 60 * 60 * 1000;
+        targetTime = Date.now() + duration;
+        localStorage.setItem(storageKey, targetTime.toString());
+      }
+
+      // Update State with confirmed time
+      setAuctionStates(prev => {
+        const existing = prev[selectedItemId] || {
+          bids: [],
+          isEnded: false,
+          isSettled: false,
+          winner: undefined,
+          endTime: 0
+        };
+
+        return {
+          ...prev,
+          [selectedItemId]: { ...existing, endTime: targetTime }
+        };
+      });
+    }
+
     const updateTimer = () => {
       const now = Date.now();
-      const diff = endTime - now;
+      const diff = targetTime - now;
+
       if (diff <= 0) {
         setTimeLeft(0);
-        setIsAuctionEnded(true);
+        // Mark as ended in state if not already
+        if (!currentAuction.isEnded) {
+          setAuctionStates(prev => {
+            const existing = prev[selectedItemId] || {
+              bids: [],
+              isEnded: false,
+              isSettled: false,
+              winner: undefined,
+              endTime: targetTime
+            };
+            return {
+              ...prev,
+              [selectedItemId]: { ...existing, isEnded: true }
+            };
+          });
+        }
       } else {
         setTimeLeft(Math.floor(diff / 1000));
-        setIsAuctionEnded(false);
       }
     };
 
-    // Initial check
     updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [selectedItemId, currentAuction.isEnded]); // Re-run when ID or Ended status changes
 
-    // Interval
-    const timer = setInterval(updateTimer, 1000);
-    return () => clearInterval(timer);
-  }, [selectedItemId]);
-
-  // Demo: Force End Auction
+  // Demo: Force End Functionality
   const handleForceEnd = () => {
     const storageKey = `hyperdrop_auction_end_${selectedItemId}`;
-    // Set end time to "Now" to effectively end it
     localStorage.setItem(storageKey, Date.now().toString());
 
-    setTimeLeft(0);
-    setIsAuctionEnded(true);
+    setAuctionStates(prev => {
+      const existing = prev[selectedItemId] || {
+        bids: [],
+        isSettled: false,
+        winner: undefined,
+        // Explicitly setting ended state vars
+        isEnded: true,
+        endTime: Date.now()
+      };
+
+      return {
+        ...prev,
+        [selectedItemId]: {
+          ...existing,
+          isEnded: true,
+          endTime: Date.now()
+        }
+      };
+    });
   };
 
-  // Mock Data (Credits)
-  const [mockBids, setMockBids] = useState([
-    { id: '1', user: 'GIorgio.eth', amount: '450 Credits', hash: '0x123' },
-    { id: '2', user: 'Gambler.eth', amount: '500 Credits', hash: '0x456' },
-  ]);
+  // Mock History Logic (Global for now, but filtered by auction in real app)
+  // For this demo, we can just show the winner if ended, or generic list
+  const winnersList = Object.values(auctionStates)
+    .filter(state => (state.isEnded || state.isSettled) && state.winner)
+    .map(state => ({
+      id: state.winner?.id || '0',
+      ens: state.winner?.ens || 'Anon',
+      price: state.winner?.price || '0 Credits',
+      date: state.winner?.date || 'Recently',
+      txHash: state.settlementTx || state.winner?.txHash || '0x'
+    }))
+    .reverse(); // Show newest first (roughly)
 
-  // Mock History Logic
-  const mockWinners = [
-    { id: '101', ens: 'Pascal.eth', price: '900 Credits', date: '2h ago', txHash: '0xabc' },
-    { id: '100', ens: 'Kartik.eth', price: '1200 Credits', date: '5h ago', txHash: '0xdef' },
-  ];
+  // Use the derived list, fallback to some default if empty just for layout (optional)
+  // or just show real ones.
+  const displayWinners = winnersList.length > 0 ? winnersList : [];
 
   const handleSelectItem = (id: number) => {
     setSelectedItemId(id);
@@ -131,50 +287,54 @@ export default function Home() {
   /**
    * Triggers the off-chain bidding process.
    */
-  const handlePlaceBid = async () => {
-    // 1. Wallet Check: Must be connected
+  const handlePlaceBid = async (amount: number) => {
     if (!isConnected) {
-      if (openConnectModal) {
-        openConnectModal();
-      }
+      if (openConnectModal) openConnectModal();
       return;
     }
-
-    // 2. Network Check: Must be on Sepolia for bidding
     if (chain?.id !== 11155111) {
-      if (openChainModal) {
-        openChainModal();
-      }
+      if (openChainModal) openChainModal();
       return;
     }
-
-    // 3. Channel Check: Must have credits/channel open
     if (channelState === 'IDLE' || channelState === 'DEPOSITING') {
       setIsTopUpOpen(true);
       return;
     }
 
-    // Propose a new bid (Current Highest + 50 Credits)
-    // In a real app, strict validation against the latest state
-    const currentHighest = parseInt(mockBids[0]?.amount.replace(' Credits', '') || "500");
-    const nextBid = currentHighest + 50;
+    // Amount comes from UI input now
+    const nextBid = amount;
 
     const signature = await signBid(nextBid);
 
     if (signature) {
-      // Optimistic Update
+      // Optimistic Update for THIS auction only
       const newBid = {
         id: Date.now().toString(),
-        user: 'You (Anon)', // Or derive from address
+        user: 'You (Anon)',
         amount: `${nextBid} Credits`,
         hash: '0xpending...'
       };
-      setMockBids([newBid, ...mockBids]);
+
+      setAuctionStates(prev => {
+        const existing = prev[selectedItemId] || {
+          bids: [],
+          isEnded: false,
+          isSettled: false,
+          winner: undefined,
+          endTime: 0
+        };
+
+        return {
+          ...prev,
+          [selectedItemId]: {
+            ...existing,
+            bids: [newBid, ...existing.bids]
+          }
+        };
+      });
     }
   };
 
-  // Demo State
-  const [isAuctionEnded, setIsAuctionEnded] = useState(false);
   const [showDemoPanel, setShowDemoPanel] = useState(false);
 
   // Determine Button Label
@@ -188,7 +348,7 @@ export default function Home() {
       {/* 2. BACKGROUND LAYER */}
       <TradingBackground />
 
-      {/* Dynamic Glows (framer-motion friendly CSS) */}
+      {/* Dynamic Glows */}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] bg-[var(--primary)] opacity-[0.08] blur-[120px] rounded-full" />
         <div className="absolute bottom-[-10%] right-[10%] w-[600px] h-[600px] bg-fuchsia-600 opacity-[0.05] blur-[150px] rounded-full" />
@@ -238,7 +398,7 @@ export default function Home() {
           </div>
 
           <div className="w-full max-w-md">
-            {isAuctionEnded ? (
+            {currentAuction.isEnded ? (
               // Winner UI
               <div className="relative overflow-hidden rounded-3xl border border-[var(--primary)] bg-black/80 p-8 text-center backdrop-blur-md shadow-[0_0_50px_rgba(6,182,212,0.2)]">
                 <div className="absolute inset-0 bg-[var(--primary)]/10 animate-pulse" />
@@ -246,34 +406,50 @@ export default function Home() {
                 <p className="relative z-10 text-zinc-400 mb-6">Winner</p>
 
                 <div className="relative z-10 text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[var(--primary)] to-white mb-8">
-                  {mockBids[0]?.user || "No Bids"}
+                  {currentAuction.bids[0]?.user || currentAuction.winner?.ens || "No Bids"}
                 </div>
 
                 <div className="relative z-10 flex flex-col gap-3">
                   <div className="text-sm text-zinc-500 font-mono">
-                    Winning Bid: <span className="text-white">{mockBids[0]?.amount}</span>
+                    Winning Bid: <span className="text-white">{currentAuction.bids[0]?.amount || currentAuction.winner?.price || "N/A"}</span>
                   </div>
 
-                  {/* Operator Controls for Demo */}
-                  <button
-                    onClick={handleSettle}
-                    className="mt-4 w-full rounded-xl bg-white text-black font-bold py-3 hover:bg-zinc-200 transition-colors"
-                  >
-                    Execute Chain Settlement
-                  </button>
+                  {/* Settled vs Unsettled State */}
+                  {currentAuction.isSettled ? (
+                    <div className="mt-4 flex flex-col gap-2">
+                      <div className="text-xs uppercase tracking-widest text-green-400 font-bold">
+                        ✓ Settled on Chain
+                      </div>
+                      <a
+                        href={`https://sepolia.etherscan.io/tx/${currentAuction.settlementTx}`}
+                        target="_blank"
+                        className="text-xs text-zinc-500 hover:text-white underline truncate"
+                      >
+                        Tx: {currentAuction.settlementTx}
+                      </a>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleSettle}
+                      className="mt-4 w-full rounded-xl bg-white text-black font-bold py-3 hover:bg-zinc-200 transition-colors"
+                    >
+                      Execute Chain Settlement
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
               <AuctionCard
                 itemId={selectedItemId.toString()}
                 itemName={`Cyber-Tee #${selectedItemId}`}
-                currentBid={mockBids[0]?.amount.replace(' Credits', '') || "500"}
+                currentBid={(currentAuction.bids[0]?.amount || "500 Credits").replace(' Credits', '')}
                 timeLeftSeconds={timeLeft}
-                totalTimeSeconds={600} // Mock total
+                totalTimeSeconds={11 * 24 * 60 * 60}
                 visual={<TShirtVisual number={selectedItemId} />}
                 onPlaceBid={handlePlaceBid}
                 isPlacingBid={isSigning}
                 actionLabel={actionLabel}
+                userCredits={credits}
               />
             )}
           </div>
@@ -281,32 +457,45 @@ export default function Home() {
 
         {/* Right Col: Stats & History */}
         <div className="flex flex-col gap-8 lg:col-span-5 lg:pt-12">
-          {/* Info Panel */}
+          {/* Info Panel: Live Activity for THIS Auction */}
           <div className="rounded-3xl border border-white/10 bg-black/40 p-6 backdrop-blur-md">
-            <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-500">Live Activity</h3>
+            <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-500">
+              Activity (#{selectedItemId})
+            </h3>
             <div className="flex flex-col gap-4">
-              {mockBids.slice(0, 3).map((b) => (
-                <div key={b.id} className="flex items-center justify-between border-b border-white/5 pb-4 last:border-0 last:pb-0">
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-full bg-gradient-to-br from-cyan-600 to-blue-800" />
-                    <div>
-                      <p className="font-bold text-white">Bid by {b.user}</p>
-                      <p className="text-xs text-[var(--primary)]">{b.amount}</p>
+              {currentAuction.bids.length === 0 ? (
+                <p className="text-zinc-500 italic text-sm">No bids yet. Be the first!</p>
+              ) : (
+                currentAuction.bids.slice(0, 3).map((b) => (
+                  <div key={b.id} className="flex items-center justify-between border-b border-white/5 pb-4 last:border-0 last:pb-0">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-gradient-to-br from-cyan-600 to-blue-800" />
+                      <div>
+                        <p className="font-bold text-white">{b.user}</p>
+                        <p className="text-xs text-[var(--primary)]">{b.amount}</p>
+                      </div>
                     </div>
+                    <span className="text-xs text-zinc-600">Now</span>
                   </div>
-                  <a href="#" className="text-xs text-zinc-600 hover:text-white transition-colors">View Tx</a>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
-          <WinnerHistory winners={mockWinners} />
+          <WinnerHistory winners={displayWinners} />
         </div>
 
         {/* Full Width Catalog */}
         <div className="lg:col-span-12 mt-12 mb-24">
           <div className="w-full h-px bg-gradient-to-r from-transparent via-white/10 to-transparent mb-12" />
-          <CatalogGrid onSelectItem={handleSelectItem} selectedId={selectedItemId} />
+          <CatalogGrid
+            onSelectItem={handleSelectItem}
+            selectedId={selectedItemId}
+            // Pass simple status map: ID -> 'live' | 'sold'
+            itemStatuses={Object.fromEntries(
+              Object.entries(auctionStates).map(([id, state]) => [id, state.isEnded ? 'sold' : 'live'])
+            )}
+          />
         </div>
 
       </div>
