@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useAccount, useWalletClient, useSwitchChain } from 'wagmi';
 
 // --- Nitrolite SDK Mock Structure ---
@@ -71,9 +71,39 @@ export function useYellowAuction() {
     const { switchChain } = useSwitchChain();
 
     const [channelState, setChannelState] = useState<ChannelState>('IDLE');
-    const [credits, setCredits] = useState<number>(0); // 1 Credit = 0.01 USDC
+    const [credits, setCredits] = useState<number>(0);
     const [channelId, setChannelId] = useState<string | null>(null);
     const [isSigning, setIsSigning] = useState(false);
+
+    // Persistence Logic
+    // 1. Load on Mount/Address Change
+    useEffect(() => {
+        if (!address) {
+            setCredits(0);
+            return;
+        }
+
+        const stored = localStorage.getItem(`hyperdrop_credits_${address}`);
+        if (stored) {
+            setCredits(parseInt(stored));
+            // Also restore channel state if they had credits
+            if (parseInt(stored) > 0) {
+                setChannelState('OPEN');
+                // Ideally restore channelId too, but generating fresh one for demo is fine
+                const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+                setChannelId(`0x${randomHex}`);
+            }
+        } else {
+            setCredits(0);
+        }
+    }, [address]);
+
+    // 2. Save on Credit Change
+    useEffect(() => {
+        if (address) {
+            localStorage.setItem(`hyperdrop_credits_${address}`, credits.toString());
+        }
+    }, [credits, address]);
 
     // Initialize SDK Mock for Sepolia
     const nitrolite = useMemo(() => new NitroliteClientMock({ chainId: 11155111 }), []);

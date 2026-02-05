@@ -100,7 +100,16 @@ export function AuctionCard({
                             Time Left
                         </p>
                         <p className={`mt-1 text-xl font-bold ${isUrgent ? 'text-fuchsia-500' : 'text-white'}`}>
-                            {Math.floor(timeLeftSeconds / 60)}m {timeLeftSeconds % 60}s
+                            {(() => {
+                                const d = Math.floor(timeLeftSeconds / (3600 * 24));
+                                const h = Math.floor((timeLeftSeconds % (3600 * 24)) / 3600);
+                                const m = Math.floor((timeLeftSeconds % 3600) / 60);
+                                const s = timeLeftSeconds % 60;
+
+                                if (d > 0) return `${d}d ${h}h ${m}m`;
+                                if (h > 0) return `${h}h ${m}m`;
+                                return `${m}m ${s}s`;
+                            })()}
                         </p>
                     </div>
                 </div>

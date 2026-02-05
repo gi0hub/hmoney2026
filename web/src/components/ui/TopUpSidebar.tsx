@@ -15,6 +15,29 @@ interface TopUpSidebarProps {
 
 export function TopUpSidebar({ isOpen, onClose, onOpenChannel }: TopUpSidebarProps) {
     const [amount, setAmount] = useState('0.20'); // Default test amount
+    const [isBridging, setIsBridging] = useState(false);
+
+    const handleBridgeSuccess = (route: any) => {
+        // In a Production App:
+        // 1. We would capture the 'txHash' from the route.
+        // 2. Send it to our backend "Relayer".
+        // 3. Relayer verifies the USDC deposit on Base.
+        // 4. Relayer calls the Yellow Network contract on Sepolia to mint credits.
+
+        // For Hackathon Demo:
+        // We simulate the "Relayer" receiving the event immediately.
+        console.log("Bridge Success Detected:", route);
+
+        // Extract amount if possible, or fallback to default
+        // const bridgedAmount = route?.toAmountUSD || '10.00'; 
+
+        alert("✅ Bridge & Swap on Base Confirmed!\n\nHyperDrop Oracle has detected your deposit.\nMinting Credits on Sepolia now...");
+
+        if (onOpenChannel) {
+            onOpenChannel(amount); // Auto-trigger the credit claim
+            onClose();
+        }
+    };
 
     return (
         <AnimatePresence>
@@ -54,21 +77,27 @@ export function TopUpSidebar({ isOpen, onClose, onOpenChannel }: TopUpSidebarPro
                         <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
                             <ClientOnly>
                                 <div className="mb-6">
-                                    <p className="text-sm text-zinc-400 mb-4 px-2">
-                                        1. Bridge funds to <strong>Base (USDC)</strong> using the widget below.<br />
-                                        2. Enter the bridged amount below to verify.<br />
-                                        3. Click "Claim Credits" to switch to <strong>Sepolia</strong>.
-                                    </p>
-                                    <LiFiWidgetComponent />
+                                    <div className="rounded-lg bg-[var(--primary)]/10 border border-[var(--primary)]/20 p-4 mb-4">
+                                        <p className="text-xs text-[var(--primary)] font-bold uppercase mb-2">⚡ Hybrid Architecture</p>
+                                        <p className="text-sm text-zinc-300">
+                                            1. You pay with <strong>Real Assets</strong> on Base (via Li.Fi).<br />
+                                            2. Our <strong>Oracle</strong> detects the Tx.<br />
+                                            3. You receive <strong>Gasless Credits</strong> on Sepolia.
+                                        </p>
+                                    </div>
+                                    <LiFiWidgetComponent onSuccess={handleBridgeSuccess} />
                                 </div>
                             </ClientOnly>
                         </div>
 
-                        {/* Footer Action */}
+                        {/* Footer Action (Manual Override) */}
                         {onOpenChannel && (
                             <div className="p-6 border-t border-white/10 bg-black/50 backdrop-blur-md shrink-0 flex flex-col gap-3">
                                 <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Oracle Verification (Simulated)</label>
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Manual Verification</label>
+                                        <span className="text-[10px] text-zinc-600 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">Dev Mode</span>
+                                    </div>
                                     <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
                                         <span className="text-zinc-400">$</span>
                                         <input
@@ -86,9 +115,9 @@ export function TopUpSidebar({ isOpen, onClose, onOpenChannel }: TopUpSidebarPro
                                         onOpenChannel(amount);
                                         onClose();
                                     }}
-                                    className="w-full rounded-xl bg-[var(--primary)] text-black font-bold py-3 hover:shadow-[0_0_20px_var(--primary-glow)] transition-all"
+                                    className="w-full rounded-xl bg-white/5 border border-white/10 text-white font-bold py-3 hover:bg-white/10 transition-all text-sm"
                                 >
-                                    Verify & Claim Credits
+                                    Force Claim (Skip Bridge)
                                 </button>
                             </div>
                         )}

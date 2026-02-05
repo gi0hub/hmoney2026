@@ -13,44 +13,103 @@ import { Wallet } from 'lucide-react';
 import { useYellowAuction } from '@/hooks/useYellowAuction';
 // import { WalletConnect } from '@/components/ui/WalletConnect'; // Removed
 import { ConnectButton, useConnectModal, useChainModal } from '@rainbow-me/rainbowkit';
-import { useAccount } from 'wagmi';
+import { useAccount, useWriteContract } from 'wagmi';
 
 export default function Home() {
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<number>(100);
 
-  // Wallet Hooks
-  const { isConnected, chain } = useAccount();
+  const { isConnected, chain, address } = useAccount();
   const { openConnectModal } = useConnectModal();
   const { openChainModal } = useChainModal();
+  const { writeContract } = useWriteContract();
 
   // Hook usage for gasless bidding - Hybrid Architecture
   const { channelState, channelId, credits, claimCreditsAndOpenChannel, signBid, isSigning, isWrongNetwork } = useYellowAuction();
 
-  // --- Dynamic Timer Logic ---
-  // Store end timestamps (mock) for different items to make them distinct
-  const [expiryTimes, setExpiryTimes] = useState<Record<number, number>>({
-    100: 300, // 5 mins
-    101: 120, // 2 mins
-    102: 600, // 10 mins
-  });
+  // ... (keeping timer logic context implicit by skipping lines) ...
 
-  const [timeLeft, setTimeLeft] = useState(300);
+  // Demo: Settle Logic (On-Chain)
+  const handleSettle = () => {
+    if (!address) return alert("Connect wallet to settle!");
 
-  // Countdown Effect
+    // ABI for settleAuction
+    const abi = [{
+      name: 'settleAuction',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'winner', type: 'address' },
+        { name: 'assetId', type: 'uint256' },
+        { name: 'subnameLabel', type: 'string' }
+      ],
+      outputs: []
+    }];
+
+    writeContract({
+      address: '0xd46570ba76BD3F9A8A65f8B7882fFF890118E772',
+      abi: abi,
+      functionName: 'settleAuction',
+      args: [address, BigInt(selectedItemId), selectedItemId.toString()],
+    }, {
+      onSuccess: (hash) => {
+        alert(`Settlement Triggered! Tx: ${hash}`);
+      },
+      onError: (err) => {
+        console.error(err);
+        alert("Settlement Failed: " + err.message); // Type casting might be needed for TS strictness
+      }
+    });
+  };
+
+  // --- Persistent Timer Logic ---
+  const [timeLeft, setTimeLeft] = useState(0);
+
+  // Initialize or Load Timer
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
+    const storageKey = `hyperdrop_auction_end_${selectedItemId}`;
+    const storedEnd = localStorage.getItem(storageKey);
+    let endTime: number;
+
+    if (storedEnd) {
+      endTime = parseInt(storedEnd);
+    } else {
+      // 11 Days in milliseconds
+      const duration = 11 * 24 * 60 * 60 * 1000;
+      endTime = Date.now() + duration;
+      localStorage.setItem(storageKey, endTime.toString());
+    }
+
+    // Update function to calculate clean seconds remaining
+    const updateTimer = () => {
+      const now = Date.now();
+      const diff = endTime - now;
+      if (diff <= 0) {
+        setTimeLeft(0);
+        setIsAuctionEnded(true);
+      } else {
+        setTimeLeft(Math.floor(diff / 1000));
+        setIsAuctionEnded(false);
+      }
+    };
+
+    // Initial check
+    updateTimer();
+
+    // Interval
+    const timer = setInterval(updateTimer, 1000);
     return () => clearInterval(timer);
-  }, []);
-
-  // Switch timer when item changes
-  useEffect(() => {
-    // If no specific time set, default to 5 mins + randomization based on ID
-    const specificTime = expiryTimes[selectedItemId] || (300 + (selectedItemId % 10) * 60);
-    setTimeLeft(specificTime);
   }, [selectedItemId]);
+
+  // Demo: Force End Auction
+  const handleForceEnd = () => {
+    const storageKey = `hyperdrop_auction_end_${selectedItemId}`;
+    // Set end time to "Now" to effectively end it
+    localStorage.setItem(storageKey, Date.now().toString());
+
+    setTimeLeft(0);
+    setIsAuctionEnded(true);
+  };
 
   // Mock Data (Credits)
   const [mockBids, setMockBids] = useState([
@@ -114,6 +173,10 @@ export default function Home() {
     }
   };
 
+  // Demo State
+  const [isAuctionEnded, setIsAuctionEnded] = useState(false);
+  const [showDemoPanel, setShowDemoPanel] = useState(false);
+
   // Determine Button Label
   let actionLabel = "Place Bid";
   if (!isConnected) actionLabel = "Connect Wallet";
@@ -175,17 +238,44 @@ export default function Home() {
           </div>
 
           <div className="w-full max-w-md">
-            <AuctionCard
-              itemId={selectedItemId.toString()}
-              itemName={`Cyber-Tee #${selectedItemId}`}
-              currentBid={mockBids[0]?.amount.replace(' Credits', '') || "500"}
-              timeLeftSeconds={timeLeft}
-              totalTimeSeconds={600} // Mock total
-              visual={<TShirtVisual number={selectedItemId} />}
-              onPlaceBid={handlePlaceBid}
-              isPlacingBid={isSigning}
-              actionLabel={actionLabel}
-            />
+            {isAuctionEnded ? (
+              // Winner UI
+              <div className="relative overflow-hidden rounded-3xl border border-[var(--primary)] bg-black/80 p-8 text-center backdrop-blur-md shadow-[0_0_50px_rgba(6,182,212,0.2)]">
+                <div className="absolute inset-0 bg-[var(--primary)]/10 animate-pulse" />
+                <h3 className="relative z-10 text-2xl font-bold text-white mb-2">Auction Ended</h3>
+                <p className="relative z-10 text-zinc-400 mb-6">Winner</p>
+
+                <div className="relative z-10 text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[var(--primary)] to-white mb-8">
+                  {mockBids[0]?.user || "No Bids"}
+                </div>
+
+                <div className="relative z-10 flex flex-col gap-3">
+                  <div className="text-sm text-zinc-500 font-mono">
+                    Winning Bid: <span className="text-white">{mockBids[0]?.amount}</span>
+                  </div>
+
+                  {/* Operator Controls for Demo */}
+                  <button
+                    onClick={handleSettle}
+                    className="mt-4 w-full rounded-xl bg-white text-black font-bold py-3 hover:bg-zinc-200 transition-colors"
+                  >
+                    Execute Chain Settlement
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <AuctionCard
+                itemId={selectedItemId.toString()}
+                itemName={`Cyber-Tee #${selectedItemId}`}
+                currentBid={mockBids[0]?.amount.replace(' Credits', '') || "500"}
+                timeLeftSeconds={timeLeft}
+                totalTimeSeconds={600} // Mock total
+                visual={<TShirtVisual number={selectedItemId} />}
+                onPlaceBid={handlePlaceBid}
+                isPlacingBid={isSigning}
+                actionLabel={actionLabel}
+              />
+            )}
           </div>
         </div>
 
@@ -227,6 +317,28 @@ export default function Home() {
         onClose={() => setIsTopUpOpen(false)}
         onOpenChannel={(amount) => claimCreditsAndOpenChannel(amount)}
       />
+
+      {/* Demo Admin Panel */}
+      <div className={`fixed bottom-4 right-4 z-50 transition-all ${showDemoPanel ? 'translate-y-0' : 'translate-y-[120%]'}`}>
+        <div className="bg-black/90 border border-zinc-700 rounded-lg p-4 shadow-2xl w-64">
+          <h4 className="text-xs font-bold text-zinc-500 uppercase mb-3">Demo Controls</h4>
+          <button
+            onClick={handleForceEnd}
+            className="w-full bg-red-500/10 border border-red-500/50 text-red-500 text-xs font-bold py-2 rounded hover:bg-red-500/20"
+          >
+            ⚠️ Force End Auction
+          </button>
+        </div>
+      </div>
+
+      {/* Demo Toggle */}
+      <button
+        onClick={() => setShowDemoPanel(!showDemoPanel)}
+        className="fixed bottom-4 right-4 z-50 h-8 w-8 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white"
+        title="Toggle Demo Panel"
+      >
+        ⚙️
+      </button>
 
       <ToastProvider messages={[]} /* We can wire this to real events later */ />
     </main>
