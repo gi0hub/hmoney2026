@@ -86,7 +86,7 @@ export default function Home() {
           const highestBid = current.bids[0];
           const winnerInfo = highestBid
             ? {
-              id: highestBid.id,
+              id: selectedItemId.toString(),
               ens: highestBid.user,
               price: highestBid.amount,
               date: 'Just now',
@@ -375,10 +375,10 @@ export default function Home() {
   };
 
   // History Logic (Global for now, filtered by auction)
-  const winnersList = Object.values(auctionStates)
-    .filter(state => (state.isEnded || state.isSettled) && state.winner)
-    .map(state => ({
-      id: state.winner?.id || '0',
+  const winnersList = Object.entries(auctionStates)
+    .filter(([_, state]) => (state.isEnded || state.isSettled) && state.winner)
+    .map(([itemId, state]) => ({
+      id: itemId,
       ens: (() => {
         // @ts-ignore
         const raw = state.winner?.ens || state.winner?.user || 'Anon';
