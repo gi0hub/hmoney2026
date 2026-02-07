@@ -7,21 +7,23 @@ import { ToastProvider } from '@/components/ui/Toast';
 import { WinnerHistory } from '@/components/ui/WinnerHistory';
 import { TradingBackground } from '@/components/ui/TradingBackground';
 import { CatalogGrid } from '@/components/ui/CatalogGrid';
+import { GlitchText } from '@/components/ui/GlitchText';
+import { Marquee } from '@/components/ui/Marquee';
 import { TShirtVisual } from '@/components/ui/TShirtVisual';
-// import { IdentityVisual } from '@/components/ui/IdentityVisual'; // Kept for reference
 import { Wallet } from 'lucide-react';
 import { useYellowAuction } from '@/hooks/useYellowAuction';
-// import { WalletConnect } from '@/components/ui/WalletConnect'; // Removed
+
 import { ConnectButton, useConnectModal, useChainModal } from '@rainbow-me/rainbowkit';
-import { useAccount, useWriteContract } from 'wagmi';
+import { useAccount, useWriteContract, useReadContract } from 'wagmi';
 import { useToast } from '@/components/ui/ToastSystem';
 import { ErrorMessages, SuccessMessages, parseContractError } from '@/lib/errorMessages';
 
 export default function Home() {
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
-  const [selectedItemId, setSelectedItemId] = useState<number>(100);
+  const [selectedItemId, setSelectedItemId] = useState<number>(11);
   const [isForceEnding, setIsForceEnding] = useState(false);
   const [isRelayerProcessing, setIsRelayerProcessing] = useState(false);
+  const [isBidLocked, setIsBidLocked] = useState(false);
 
   const { isConnected, chain, address } = useAccount();
   const { openConnectModal } = useConnectModal();
@@ -29,7 +31,21 @@ export default function Home() {
   const { writeContract } = useWriteContract();
   const toast = useToast();
 
-  const { channelState, channelId, credits, claimCreditsAndOpenChannel, signBid, isSigning, isWrongNetwork } = useYellowAuction();
+  // Chain Read Hooks
+  const { data: onChainEndTime } = useReadContract({
+    address: '0x1f159842b08Dac10340D358eF3c2B7e15434d9A0',
+    abi: [{
+      name: 'auctionEndTimes',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'assetId', type: 'uint256' }],
+      outputs: [{ name: '', type: 'uint256' }]
+    }],
+    functionName: 'auctionEndTimes',
+    args: [BigInt(selectedItemId)],
+  });
+
+  const { channelState, channelId, credits, claimCreditsAndOpenChannel, signBid, syncAuction, isSigning, isWrongNetwork } = useYellowAuction();
 
   // Settlement logic
   const handleSettle = () => {
@@ -98,7 +114,7 @@ export default function Home() {
     });
   };
 
-  // --- Independent Auction State Management ---
+  // Auction State Management
   type Bid = { id: string; user: string; amount: string; hash: string };
   type AuctionState = {
     bids: Bid[];
@@ -110,16 +126,13 @@ export default function Home() {
   };
 
   const [auctionStates, setAuctionStates] = useState<Record<number, AuctionState>>({
-    // Initial State including the "Used" Auction #3
     3: {
       bids: [
         { id: '1', user: 'Tester.eth', amount: '850 Credits', hash: '0x333' }
       ],
-      isEnded: true,
-      isSettled: true,
-      settlementTx: '0x9c5991246ab77ebe00dd3a85ddb94f3e0e1e90751c94614ce58ab9b0d70cd52b',
-      winner: { id: '3', ens: 'Tester.eth', price: '850 Credits', date: '1d ago', txHash: '0x333' },
-      endTime: Date.now() - 10000 // Already ended
+      isEnded: false,
+      isSettled: false,
+      endTime: 0
     },
     100: {
       bids: [
@@ -132,31 +145,82 @@ export default function Home() {
     }
   });
 
-  // --- Persistence Logic ---
+  // Persistence
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('hyperdrop_auction_states');
-      if (stored) {
-        const parsed = JSON.parse(stored);
+    const storageKey = 'hyperdrop_auction_states_v3';
 
-        // Ensure auction 3 has correct settlement hash
-        if (parsed[3]) {
-          parsed[3].settlementTx = '0x9c5991246ab77ebe00dd3a85ddb94f3e0e1e90751c94614ce58ab9b0d70cd52b';
-          parsed[3].isSettled = true; // Ensure it stays settled
+    const loadAuthStates = () => {
+      try {
+        const stored = localStorage.getItem(storageKey);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setAuctionStates(prev => ({ ...prev, ...parsed }));
         }
-
-        setAuctionStates(prev => ({ ...prev, ...parsed }));
+      } catch (e) {
+        console.error("Failed to load auction states", e);
       }
-    } catch (e) {
-      console.error("Failed to load auction states", e);
-    }
+    };
+
+    loadAuthStates();
+
+    // Listen for changes in other tabs
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === storageKey && e.newValue !== null) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          setAuctionStates(prev => ({ ...prev, ...parsed }));
+        } catch { }
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
   useEffect(() => {
     if (Object.keys(auctionStates).length > 0) {
-      localStorage.setItem('hyperdrop_auction_states', JSON.stringify(auctionStates));
+      localStorage.setItem('hyperdrop_auction_states_v3', JSON.stringify(auctionStates));
     }
   }, [auctionStates]);
+
+  // Real-Time Sync
+  useEffect(() => {
+    let abandoned = false;
+    const poll = async () => {
+      if (abandoned) return;
+      try {
+        const res = await fetch(`/api/status?itemId=${selectedItemId}`);
+        const data = await res.json();
+        if (abandoned) return;
+
+        if (data.success && data.bids.length > 0) {
+          setAuctionStates(prev => {
+            const current = prev[selectedItemId];
+            // Only update if the latest bid ID is different to avoid flickering
+            if (current && current.bids.length > 0 && current.bids[0].id === data.bids[0].id) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [selectedItemId]: {
+                ...(current || { isEnded: false, isSettled: false, endTime: 0 }),
+                bids: data.bids
+              }
+            };
+          });
+        }
+      } catch (e) {
+        // console.debug('Polling wait...');
+      }
+    };
+
+    const interval = setInterval(poll, 1500); // More aggressive polling (1.5s)
+    poll();
+    return () => {
+      abandoned = true;
+      clearInterval(interval);
+    };
+  }, [selectedItemId]);
 
   // Helper to get current auction state safely
   const currentAuction = auctionStates[selectedItemId] || {
@@ -166,7 +230,7 @@ export default function Home() {
     endTime: 0
   };
 
-  // --- Persistent Timer Logic (Per Auction) ---
+  // Auction Timer Logic
   const [timeLeft, setTimeLeft] = useState(0);
 
   useEffect(() => {
@@ -181,17 +245,22 @@ export default function Home() {
     let targetTime = currentAuction.endTime;
 
     // Initialize time if not set in state or storage
-    if (targetTime === 0) {
+    if (onChainEndTime && Number(onChainEndTime) > 0) {
+      targetTime = Number(onChainEndTime) * 1000;
+      localStorage.setItem(storageKey, targetTime.toString());
+    } else if (targetTime === 0) {
       if (storedEnd) {
         targetTime = parseInt(storedEnd);
       } else {
-        // 11 Days default for new visits
+        // Fallback: 11 Days default for new visits
         const duration = 11 * 24 * 60 * 60 * 1000;
         targetTime = Date.now() + duration;
         localStorage.setItem(storageKey, targetTime.toString());
       }
-
-      // Update State with confirmed time
+    }
+    // Update State with confirmed time
+    // This block should run if targetTime was initialized or updated
+    if (targetTime !== currentAuction.endTime) { // Only update state if targetTime actually changed
       setAuctionStates(prev => {
         const existing = prev[selectedItemId] || {
           bids: [],
@@ -238,10 +307,26 @@ export default function Home() {
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [selectedItemId, currentAuction.isEnded]); // Re-run when ID or Ended status changes
+  }, [selectedItemId, currentAuction.isEnded, onChainEndTime]); // Re-run when ID or Ended status changes
 
   // Force end functionality
-  const handleForceEnd = (itemId: number) => {
+  const handleForceEnd = async (itemId: number) => {
+    // 1. Sync the current winner to chain first (if any)
+    if (currentAuction.winner) {
+      try {
+        setIsRelayerProcessing(true);
+        toast.info("Syncing Bid", "Ensuring winner is on-chain...");
+        // @ts-ignore
+        await syncAuction(itemId, currentAuction.winner.ens || currentAuction.winner.user || currentAuction.winner.id);
+        setIsRelayerProcessing(false);
+      } catch (e) {
+        console.error("Sync failed", e);
+        setIsRelayerProcessing(false);
+        // Optional: abort or warn? For now, we warn but proceed so user isn't stuck
+        toast.warning("Sync Failed", "Proceeding with force end...");
+      }
+    }
+
     const forceEndAbi = [{
       name: 'forceEndAuction',
       type: 'function',
@@ -258,6 +343,7 @@ export default function Home() {
     }, {
       onSuccess: () => {
         setIsForceEnding(true); // Start visual loading state
+        setIsBidLocked(true); // Lock bidding
         toast.info("Transaction Sent", "Waiting ~15s for confirmation...");
 
         // Wait 15 seconds for the transaction to be mined
@@ -275,10 +361,14 @@ export default function Home() {
               endTime: Date.now()
             }
           }));
+
+          // Extended lock to prevent bugs during transition
+          setTimeout(() => setIsBidLocked(false), 4000);
         }, 15000);
       },
       onError: (err) => {
         setIsForceEnding(false);
+        setIsBidLocked(false);
         toast.error("Force end failed", err.message);
       }
     });
@@ -289,7 +379,12 @@ export default function Home() {
     .filter(state => (state.isEnded || state.isSettled) && state.winner)
     .map(state => ({
       id: state.winner?.id || '0',
-      ens: state.winner?.ens || 'Anon',
+      ens: (() => {
+        // @ts-ignore
+        const raw = state.winner?.ens || state.winner?.user || 'Anon';
+        if (raw === 'You (Anon)' && raw.toLowerCase() !== address?.toLowerCase()) return 'Anon';
+        return raw.toLowerCase() === address?.toLowerCase() ? 'You' : 'Anon';
+      })(),
       price: state.winner?.price || '0 Credits',
       date: state.winner?.date || 'Recently',
       txHash: state.settlementTx || state.winner?.txHash || '0x'
@@ -305,10 +400,11 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  /**
-   * Triggers the off-chain bidding process.
-   */
   const handlePlaceBid = async (amount: number) => {
+    if (isBidLocked || isForceEnding) {
+      toast.error("Process Pending", "Please wait a moment...");
+      return;
+    }
     if (!isConnected) {
       if (openConnectModal) openConnectModal();
       return;
@@ -327,41 +423,54 @@ export default function Home() {
     const signature = await signBid(nextBid);
 
     if (signature) {
-      fetch('http://localhost:3001/api/bid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          itemId: selectedItemId,
-          bidder: address,
-          amount: nextBid,
-          signature
-        })
-      }).catch(e => console.log('relayer:', e));
+      try {
+        const response = await fetch('/api/bid', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            itemId: selectedItemId,
+            bidder: address,
+            amount: nextBid,
+            signature
+          })
+        });
 
-      const newBid = {
-        id: Date.now().toString(),
-        user: 'You (Anon)',
-        amount: `${nextBid} Credits`,
-        hash: '0xpending...'
-      };
+        const data = await response.json();
 
-      setAuctionStates(prev => {
-        const existing = prev[selectedItemId] || {
-          bids: [],
-          isEnded: false,
-          isSettled: false,
-          winner: undefined,
-          endTime: 0
+        if (!response.ok) {
+          toast.error("Bid Failed", data.error || "Unknown error");
+          // If the error was specifically "too low", we might want to refresh state immediately
+          return;
+        }
+
+        const newBid = {
+          id: Date.now().toString(),
+          user: address || 'Anon',
+          amount: `${nextBid} Credits`,
+          hash: data.txHash || '0xpending...'
         };
 
-        return {
-          ...prev,
-          [selectedItemId]: {
-            ...existing,
-            bids: [newBid, ...existing.bids]
-          }
-        };
-      });
+        setAuctionStates(prev => {
+          const existing = prev[selectedItemId] || {
+            bids: [],
+            isEnded: false,
+            isSettled: false,
+            winner: undefined,
+            endTime: 0
+          };
+
+          return {
+            ...prev,
+            [selectedItemId]: {
+              ...existing,
+              bids: [newBid, ...existing.bids]
+            }
+          };
+        });
+      } catch (e) {
+        console.error('Bid error:', e);
+        toast.error("Bid Error", "Could not reach relayer");
+      }
 
       // Safety: Lock admin actions for 15s to allow Relayer to mine Init/SetWinner txs
       setIsRelayerProcessing(true);
@@ -376,11 +485,13 @@ export default function Home() {
   if (!isConnected) actionLabel = "Connect Wallet";
   else if (chain?.id !== 11155111) actionLabel = "Switch to Sepolia";
 
+
+
   return (
     <main className="min-h-screen bg-[var(--background)] selection:bg-[var(--primary)] selection:text-black overflow-x-hidden relative">
-
       {/* 2. BACKGROUND LAYER */}
       <TradingBackground />
+      <div className="bg-noise" /> {/* Global Texture */}
 
       {/* Dynamic Glows */}
       <div className="fixed inset-0 pointer-events-none z-0">
@@ -393,7 +504,7 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <div className="h-2 w-2 rounded-full bg-[var(--primary)] box-shadow-glow" />
           <span className="font-mono text-xl font-bold tracking-tighter text-white">
-            HYPER<span className="text-[var(--primary)]">DROP</span>
+            <GlitchText text="HYPERDROP" />
           </span>
         </div>
 
@@ -439,8 +550,12 @@ export default function Home() {
                 <h3 className="relative z-10 text-2xl font-bold text-white mb-2">Auction Ended</h3>
                 <p className="relative z-10 text-zinc-400 mb-6">Winner</p>
 
-                <div className="relative z-10 text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[var(--primary)] to-white mb-8">
-                  {currentAuction.bids[0]?.user || currentAuction.winner?.ens || "No Bids"}
+                <div className="relative z-10 text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[var(--primary)] to-white mb-8 flex justify-center text-center">
+                  {(() => {
+                    // @ts-ignore
+                    const raw = currentAuction.bids[0]?.user || currentAuction.winner?.ens || currentAuction.winner?.user || "No Bids";
+                    return raw.toLowerCase() === address?.toLowerCase() ? 'You' : 'Anon';
+                  })()}
                 </div>
 
                 <div className="relative z-10 flex flex-col gap-3">
@@ -463,12 +578,18 @@ export default function Home() {
                       </a>
                     </div>
                   ) : (
-                    <button
-                      onClick={handleSettle}
-                      className="mt-4 w-full rounded-xl bg-white text-black font-bold py-3 hover:bg-zinc-200 transition-colors"
-                    >
-                      Execute Chain Settlement
-                    </button>
+                    (currentAuction.bids.length > 0 || currentAuction.winner) ? (
+                      <button
+                        onClick={handleSettle}
+                        className="mt-4 w-full rounded-xl bg-white text-black font-bold py-3 hover:bg-zinc-200 transition-colors"
+                      >
+                        Execute Chain Settlement
+                      </button>
+                    ) : (
+                      <div className="mt-4 w-full rounded-xl bg-zinc-800 text-zinc-500 font-bold py-3 cursor-not-allowed text-center">
+                        No Bids - Cannot Settle
+                      </div>
+                    )
                   )}
                 </div>
               </div>
@@ -481,8 +602,8 @@ export default function Home() {
                 totalTimeSeconds={11 * 24 * 60 * 60}
                 visual={<TShirtVisual number={selectedItemId} />}
                 onPlaceBid={handlePlaceBid}
-                isPlacingBid={isSigning}
-                actionLabel={actionLabel}
+                isPlacingBid={isSigning || isBidLocked}
+                actionLabel={isBidLocked ? "Locking..." : actionLabel}
                 userCredits={credits}
                 setIsTopUpOpen={setIsTopUpOpen}
               />
@@ -493,7 +614,7 @@ export default function Home() {
         {/* Right Col: Stats & History */}
         <div className="flex flex-col gap-8 lg:col-span-5 lg:pt-12">
           {/* Info Panel: Live Activity for THIS Auction */}
-          <div className="rounded-3xl border border-white/10 bg-black/40 p-6 backdrop-blur-md">
+          <div className="w-full rounded-3xl border border-white/10 bg-black/20 backdrop-blur-md p-6 transition-all duration-300 hover:border-cyan-500/50 hover:shadow-[0_0_20px_rgba(6,182,212,0.15)]">
             <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-500">
               Activity (#{selectedItemId})
             </h3>
@@ -506,7 +627,12 @@ export default function Home() {
                     <div className="flex items-center gap-3">
                       <div className="h-8 w-8 rounded-full bg-gradient-to-br from-cyan-600 to-blue-800" />
                       <div>
-                        <p className="font-bold text-white">{b.user}</p>
+                        <p className="font-bold text-white">
+                          {(() => {
+                            const userStr = b.user || 'Anon';
+                            return userStr.toLowerCase() === address?.toLowerCase() ? 'You' : 'Anon';
+                          })()}
+                        </p>
                         <p className="text-xs text-[var(--primary)]">{b.amount}</p>
                       </div>
                     </div>
@@ -557,12 +683,19 @@ export default function Home() {
       <div className={`fixed bottom-4 right-4 z-50 transition-all ${showAdminPanel ? 'translate-y-0' : 'translate-y-[120%]'}`}>
         <div className="bg-black/90 border border-zinc-700 rounded-lg p-4 shadow-2xl w-64">
           <h4 className="text-xs font-bold text-zinc-500 uppercase mb-3">Controls</h4>
-          <button
-            onClick={() => handleForceEnd(selectedItemId)}
-            disabled={isForceEnding || isRelayerProcessing}
-            className="w-full bg-red-500/10 border border-red-500/50 text-red-500 text-xs font-bold py-2 rounded hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-wait">
-            {isRelayerProcessing ? 'Syncing Bid (~15s)...' : (isForceEnding ? 'Processing (~15s)...' : 'Force End Auction')}
-          </button>
+
+          {onChainEndTime && Number(onChainEndTime) > 0 ? (
+            <button
+              onClick={() => handleForceEnd(selectedItemId)}
+              disabled={isForceEnding || isRelayerProcessing}
+              className="w-full bg-red-500/10 border border-red-500/50 text-red-500 text-xs font-bold py-2 rounded hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-wait">
+              {isRelayerProcessing ? 'Syncing Bid (~15s)...' : (isForceEnding ? 'Processing (~15s)...' : 'Force End Auction')}
+            </button>
+          ) : (
+            <div className="text-xs text-zinc-500 text-center py-2 h-8 flex items-center justify-center">
+              Auction Not Started
+            </div>
+          )}
         </div>
       </div>
 
@@ -576,6 +709,20 @@ export default function Home() {
       </button>
 
       <ToastProvider messages={[]} /* We can wire this to real events later */ />
-    </main>
+
+      {/* Live Winners Marquee */}
+      <div className="fixed bottom-0 w-full z-40 pointer-events-none">
+        <Marquee winners={[
+          // Real winners first
+          ...displayWinners,
+          // Legacy Hall of Fame winners
+          { id: '88', ens: 'Kartik.eth', price: '450 Credits', txHash: '0x' },
+          { id: '89', ens: 'Pascal.eth', price: '500 Credits', txHash: '0x' },
+          { id: '90', ens: 'GIorgio.eth', price: '550 Credits', txHash: '0x' },
+          { id: '91', ens: 'Pepe.eth', price: '600 Credits', txHash: '0x' },
+          { id: '92', ens: 'Vitalik.eth', price: '1000 Credits', txHash: '0x' }
+        ]} />
+      </div>
+    </main >
   );
 }

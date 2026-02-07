@@ -9,35 +9,39 @@ interface TShirtVisualProps {
 export function TShirtVisual({ number, className = "w-full h-full", primaryColor = "#627EEA" }: TShirtVisualProps) {
   return (
     <div className={`relative flex items-center justify-center ${className}`}>
-      {/* 1. Base Image */}
+      {/* Base layer */}
       <img
-        src="/tshirt-white.png"
-        alt="T-Shirt"
+        src="/tshirt_solid_black.png"
+        alt="Technical T-Shirt"
         className="w-full h-full object-contain"
         style={{
-          mixBlendMode: 'multiply',
-          filter: 'contrast(1.1)'
+          // Blend mode for transparency
+          mixBlendMode: 'screen',
+          filter: 'contrast(1.3) brightness(1.7)' // Brightness adjustment
         }}
       />
 
-      {/* 2. Number Overlay */}
-      <div className="absolute inset-0 flex items-center justify-center pt-8 pointer-events-none">
+      {/* Overlay layer */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ marginTop: '-15%' }}>
         <span
-          className="font-mono text-5xl font-black tracking-tighter"
+          className="relative z-10 font-sans text-3xl font-bold tracking-tight opacity-90"
           style={{
-            color: primaryColor,
-
-            textShadow: `
-                    1px 1px 0px rgba(255,255,255,0.4), 
-                    2px 2px 0px rgba(0,0,0,0.3),
-                    4px 4px 8px rgba(0,0,0,0.5),
-                    0 0 15px ${primaryColor}40
-                `,
-            fontFamily: '"Space Mono", "Courier New", monospace',
-
+            color: '#EEEEEE',
+            // Texture simulation
+            mixBlendMode: 'overlay',
+            fontFamily: 'Inter, sans-serif',
           }}
         >
-          {number.toString().padStart(3, '0')}
+          {number.toString()}
+        </span>
+        <span
+          className="absolute z-0 font-sans text-3xl font-bold tracking-tight opacity-80"
+          style={{
+            color: '#DDDDDD',
+            fontFamily: 'Inter, sans-serif',
+          }}
+        >
+          {number.toString()}
         </span>
       </div>
     </div>

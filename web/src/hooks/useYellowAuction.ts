@@ -5,7 +5,7 @@ import { useAccount, useWalletClient, useSwitchChain, usePublicClient } from 'wa
 import { NitroliteClient } from '@erc7824/nitrolite';
 import { Address } from 'viem';
 
-// --- Types for WebSocket Config Response ---
+// WebSocket config types
 interface ChainConfig {
     chain_id: number;
     name: string;
@@ -56,36 +56,62 @@ export function useYellowAuction() {
     useEffect(() => {
         if (!address) {
             setCredits(0);
+            setChannelState('IDLE');
             return;
         }
-        const stored = localStorage.getItem(`hyperdrop_credits_${address}`);
+
+        const storageKey = `hyperdrop_credits_${address}`;
+
+        // 1. Initial Load
+        const stored = localStorage.getItem(storageKey);
         if (stored) {
-            setCredits(parseInt(stored));
-            if (parseInt(stored) > 0) {
-                setChannelState('OPEN');
-                // Channel Synchronization
-                const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-                setChannelId(`0x${randomHex}`);
-            }
+            const val = parseInt(stored);
+            setCredits(val);
+            if (val > 0) setChannelState('OPEN');
         } else {
             setCredits(0);
         }
-    }, [address]);
+
+        // 2. Cross-tab sync
+        const handleStorage = (e: StorageEvent) => {
+            if (e.key === storageKey && e.newValue !== null) {
+                const newVal = parseInt(e.newValue);
+                setCredits(prev => {
+                    if (prev !== newVal) return newVal;
+                    return prev;
+                });
+            }
+        };
+
+        window.addEventListener('storage', handleStorage);
+        return () => window.removeEventListener('storage', handleStorage);
+    }, [address]); // Only run when address changes
+
+    // Ensure we have a channelId if we have credits
+    useEffect(() => {
+        if (credits > 0 && !channelId) {
+            const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+            setChannelId(`0x${randomHex}`);
+            setChannelState('OPEN');
+        }
+    }, [credits, channelId]);
 
     useEffect(() => {
         if (address) {
-            localStorage.setItem(`hyperdrop_credits_${address}`, credits.toString());
+            const currentStr = localStorage.getItem(`hyperdrop_credits_${address}`);
+            if (currentStr !== credits.toString()) {
+                localStorage.setItem(`hyperdrop_credits_${address}`, credits.toString());
+            }
         }
     }, [credits, address]);
 
-    // --- Dynamic Configuration Fetching ---
+    // ClearNode config fetch
     useEffect(() => {
         let ws: WebSocket | null = null;
         try {
             ws = new WebSocket('wss://clearnet-sandbox.yellow.com/ws');
 
             ws.onopen = () => {
-                console.log('clearnode connected');
                 const request = {
                     req: [1, 'get_config', {}, Date.now()],
                     sig: []
@@ -160,13 +186,9 @@ export function useYellowAuction() {
         };
     }, []);
 
-    // --- Initialize Real SDK ---
+    // SDK Init
     const nitrolite = useMemo(() => {
         if (!sepoliaConfig || !publicClient || !walletClient) {
-            // Only log pending if we *should* be ready (i.e., we have a wallet)
-            if (walletClient) {
-                console.debug('[Yellow] SDK Init Pending:', { config: !!sepoliaConfig, public: !!publicClient, wallet: !!walletClient });
-            }
             return null;
         }
 
@@ -178,7 +200,7 @@ export function useYellowAuction() {
                 walletClient: walletClient as any,
                 stateSigner: walletClient as any,
                 addresses: sepoliaConfig.addresses,
-                challengeDuration: BigInt(3600) // Minimum 1 hour required by SDK
+                challengeDuration: BigInt(3600)
             });
         } catch (e) {
             console.error('[Yellow] SDK Instantiation Failed:', e);
@@ -218,7 +240,7 @@ export function useYellowAuction() {
         console.log('[HyperDrop] Deposit TX:', txHash);
 
         // Optimistic Credit Update
-        const newCredits = Math.floor(parseFloat(amountUSDC) * 100);
+        const newCredits = Math.floor(parseFloat(amountUSDC) * 1000);
         setCredits(prev => prev + newCredits);
 
         const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
@@ -227,7 +249,7 @@ export function useYellowAuction() {
 
     }, [nitrolite, chain, switchChain]);
 
-    // --- Network Enforcement ---
+    // Utils
     const isWrongNetwork = channelState === 'OPEN' && chain?.id !== 11155111;
 
     /**
@@ -297,12 +319,30 @@ export function useYellowAuction() {
         }
     }, [nitrolite, channelState, channelId, chain, switchChain, credits, walletClient, sepoliaConfig]);
 
+    // Auction Sync Helper
+    const syncAuction = async (assetId: number, bidder?: string) => {
+        try {
+            const response = await fetch('/api/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assetId, bidder })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Sync failed');
+            return data.txHash;
+        } catch (error) {
+            console.error('Sync error:', error);
+            throw error;
+        }
+    };
+
     return {
         channelState,
         channelId,
-        credits,
+        credits: Math.floor(credits),
         claimCreditsAndOpenChannel,
         signBid,
+        syncAuction, // Export new function
         isSigning,
         isWrongNetwork
     };

@@ -5,8 +5,6 @@ import { X } from 'lucide-react';
 import { ClientOnly } from '../ClientOnly';
 import { useState } from 'react';
 
-import { LiFiWidgetComponent } from './LiFiWidgetComponent';
-
 interface TopUpSidebarProps {
     isOpen: boolean;
     onClose: () => void;
@@ -14,99 +12,7 @@ interface TopUpSidebarProps {
 }
 
 export function TopUpSidebar({ isOpen, onClose, onOpenChannel }: TopUpSidebarProps) {
-    const [amount, setAmount] = useState('0.20'); // Default test amount
-    const [isProcessingBridge, setIsProcessingBridge] = useState(false);
-
-    const handleBridgeSuccess = async (route: any) => {
-        try {
-            setIsProcessingBridge(true);
-
-            console.log('LiFi Route:', route);
-
-            // Transaction Hash Extraction Strategy
-            let txHash = undefined;
-            const targetChainId = 8453; // Base
-
-            // 1. Scan process list for destination hash
-            if (route.steps) {
-                for (const step of route.steps) {
-                    if (step.execution?.process) {
-                        for (const proc of step.execution.process) {
-                            if (proc.txLink && proc.txHash) {
-                                txHash = proc.txHash;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 2. Fallbacks
-            if (!txHash) {
-                txHash = route.toChainId === targetChainId ? route.transactionHash : route.steps?.[route.steps.length - 1]?.execution?.toTxHash;
-            }
-
-            if (!txHash && route.steps) {
-                const lastStep = route.steps[route.steps.length - 1];
-                if (lastStep.execution) {
-                    txHash = (lastStep.execution as any).toTxHash || (lastStep.execution as any).gasToken?.address;
-                }
-            }
-
-            // 3. Last resort scan
-            if (!txHash && route.steps) {
-                for (const step of route.steps) {
-                    if (step.execution?.process) {
-                        const processes = step.execution.process;
-                        if (processes.length > 0) {
-                            const lastProc = processes[processes.length - 1];
-                            if (lastProc.txHash) txHash = lastProc.txHash;
-                        }
-                    }
-                }
-            }
-
-            if (!txHash) txHash = route.transactionHash; // Give up and use main one
-
-            console.log('Extracted Hash:', txHash);
-            const amount = route.toAmountUSD || route.toAmount;
-            const chainId = route.toChainId || 8453;
-
-            if (!txHash) {
-                alert('no tx hash found');
-                return;
-            }
-
-            console.log('calling relayer...', txHash);
-
-            const relayerUrl = process.env.NEXT_PUBLIC_RELAYER_API_URL || 'http://localhost:3001';
-            const response = await fetch(`${relayerUrl}/api/bridge-to-testnet`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    txHash,
-                    userAddress: window.ethereum?.selectedAddress,
-                    amount: amount,
-                    chainId: chainId
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                alert(`Relayer error: ${data.error || 'Unknown error'}`);
-                return;
-            }
-
-            console.log('relayer success:', data);
-            alert(`Credits deposited! TX: ${data.txHash?.slice(0, 10)}...`);
-
-        } catch (error: any) {
-            console.error('bridge failed:', error);
-            alert(`Error: ${error.message}`);
-        } finally {
-            setIsProcessingBridge(false);
-        }
-    };
+    const [amount, setAmount] = useState('5'); // Default amount
 
     return (
         <AnimatePresence>
@@ -132,7 +38,7 @@ export function TopUpSidebar({ isOpen, onClose, onOpenChannel }: TopUpSidebarPro
                         {/* Header */}
                         <div className="flex items-center justify-between border-b border-white/5 p-6 shrink-0">
                             <h2 className="text-xl font-bold tracking-tight text-white">
-                                Bridge & <span className="text-[var(--primary)]">Top Up</span>
+                                <span className="text-[var(--primary)]">Top Up</span> Credits
                             </h2>
                             <button
                                 onClick={onClose}
@@ -142,54 +48,95 @@ export function TopUpSidebar({ isOpen, onClose, onOpenChannel }: TopUpSidebarPro
                             </button>
                         </div>
 
-                        {/* Content Area (Widget) */}
-                        <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
+                        {/* Content Area */}
+                        <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
                             <ClientOnly>
-                                <div className="mb-6">
-                                    <div className="rounded-lg bg-[var(--primary)]/10 border border-[var(--primary)]/20 p-4 mb-4">
-                                        <p className="text-xs text-[var(--primary)] font-bold uppercase mb-2">Hybrid Architecture</p>
-                                        <p className="text-sm text-zinc-300">
-                                            1. You pay with <strong>Real Assets</strong> on Base (via Li.Fi).<br />
-                                            2. Our <strong>Oracle</strong> detects the Tx.<br />
-                                            3. You receive <strong>Gasless Credits</strong> on Sepolia.
+                                <div className="space-y-6">
+                                    {/* Info Card */}
+                                    <div className="rounded-xl bg-white/5 border border-white/10 p-4">
+                                        <h3 className="text-sm font-bold text-white mb-2">Sepolia Testnet</h3>
+                                        <p className="text-xs text-zinc-400">
+                                            Deposit USDC to bid on auctions.
+                                            <br />
+                                            Funds are held in the Yellow Nitrolite custody contract.
                                         </p>
                                     </div>
-                                    <LiFiWidgetComponent onSuccess={handleBridgeSuccess} />
+
+                                    {/* Deposit Input */}
+                                    <div className="space-y-2">
+                                        <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Amount</label>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                value={amount}
+                                                onChange={(e) => setAmount(e.target.value)}
+                                                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-4 text-2xl font-mono text-white focus:outline-none focus:border-[var(--primary)] focus:shadow-[0_0_15px_rgba(0,240,255,0.3)] transition-all duration-300 placeholder:text-zinc-700"
+                                                placeholder="0.00"
+                                            />
+                                            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                                                <span className="text-sm font-bold text-zinc-400">USDC</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex justify-end gap-2">
+                                            {['5', '10', '15'].map((val) => (
+                                                <button
+                                                    key={val}
+                                                    onClick={() => setAmount(val)}
+                                                    className="px-3 py-1 text-xs font-mono rounded-md bg-white/5 hover:bg-[var(--primary)]/10 hover:text-[var(--primary)] hover:border-[var(--primary)] border border-white/5 transition-all duration-300"
+                                                >
+                                                    {val}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Action Button */}
+                                    <button
+                                        onClick={() => {
+                                            if (onOpenChannel) onOpenChannel(amount);
+                                        }}
+                                        className="w-full relative group overflow-hidden rounded-xl bg-[var(--primary)] text-black font-bold py-4 transition-all hover:scale-[1.02] active:scale-[0.98] hover:shadow-[0_0_30px_var(--primary-glow)]"
+                                    >
+                                        <div className="absolute inset-0 bg-white/40 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                                        <span className="relative z-10 flex items-center justify-center gap-2 font-mono uppercase tracking-wider">
+                                            Deposit & Open Channel
+                                        </span>
+                                    </button>
+
+                                    <div className="text-center">
+                                        <p className="text-[10px] text-zinc-600">
+                                            Requires Sepolia ETH for gas.
+                                        </p>
+                                    </div>
+
+                                    {/* Rules & Faucet Info */}
+                                    <div className="pt-4 border-t border-white/5 space-y-4">
+                                        <div className="space-y-2">
+                                            <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Game Rules</h4>
+                                            <ul className="text-xs text-zinc-400 space-y-1 list-disc pl-4">
+                                                <li>Rate: 1 USDC = 1000 Credits.</li>
+                                                <li>Countdown shows seconds only in final hours.</li>
+                                                <li>Winner settles on-chain to claim NFT + Identity.</li>
+                                            </ul>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Need Funds?</h4>
+                                            <a
+                                                href="https://faucet.circle.com/"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="block w-full py-2 px-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs text-center hover:bg-blue-500/20 transition-colors"
+                                            >
+                                                Get Testnet USDC (Circle Faucet) →
+                                            </a>
+                                        </div>
+                                    </div>
                                 </div>
                             </ClientOnly>
                         </div>
 
-                        {/* Footer Action (Manual Override) */}
-                        {onOpenChannel && (
-                            <div className="p-6 border-t border-white/10 bg-black/50 backdrop-blur-md shrink-0 flex flex-col gap-3">
-                                <div className="flex flex-col gap-1">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Manual Verification</label>
-                                        <span className="text-[10px] text-zinc-600 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">Dev Mode</span>
-                                    </div>
 
-                                    <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-                                        <span className="text-zinc-400">$</span>
-                                        <input
-                                            type="number"
-                                            value={amount}
-                                            onChange={(e) => setAmount(e.target.value)}
-                                            className="bg-transparent text-white font-mono w-full focus:outline-none"
-                                            placeholder="0.00"
-                                        />
-                                        <span className="text-zinc-500 text-sm">USDC</span>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        if (onOpenChannel) onOpenChannel(amount);
-                                    }}
-                                    className="w-full rounded-xl bg-white/5 border border-white/10 text-white font-bold py-3 hover:bg-white/10 transition-all text-sm"
-                                >
-                                    Force Claim (Skip Bridge)
-                                </button>
-                            </div>
-                        )}
                     </motion.div>
                 </>
             )}

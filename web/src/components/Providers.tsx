@@ -11,7 +11,7 @@ import { ToastProvider } from './ui/ToastSystem';
 export const config = getDefaultConfig({
     appName: 'HyperDrop',
     projectId: 'YOUR_PROJECT_ID', // WalletConnect Project ID
-    chains: [mainnet, sepolia, base, polygon, optimism, arbitrum],
+    chains: [sepolia],
     ssr: true, // If your dApp uses server side rendering (SSR)
 });
 

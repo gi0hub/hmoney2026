@@ -15,17 +15,17 @@ export function TradingBackground() {
         let width = canvas.width = window.innerWidth;
         let height = canvas.height = window.innerHeight;
 
-        // Chart Lines Data
-        const lines: { y: number; speed: number; color: string; points: number[] }[] = [];
-        const colors = ['rgba(6, 182, 212, 0.1)', 'rgba(192, 38, 211, 0.1)']; // Cyan & Magenta low opacity
+        // Animation setup
+        const nodes: { x: number; y: number; vx: number; vy: number }[] = [];
+        const nodeCount = Math.floor(width * height / 15000); // Density based on screen size
 
-        // Init lines
-        for (let i = 0; i < 3; i++) {
-            lines.push({
+        // Init nodes
+        for (let i = 0; i < nodeCount; i++) {
+            nodes.push({
+                x: Math.random() * width,
                 y: Math.random() * height,
-                speed: 0.5 + Math.random(),
-                color: colors[i % colors.length],
-                points: Array.from({ length: Math.ceil(width / 20) }, () => Math.random() * 50 - 25)
+                vx: (Math.random() - 0.5) * 0.5,
+                vy: (Math.random() - 0.5) * 0.5
             });
         }
 
@@ -40,22 +40,17 @@ export function TradingBackground() {
         const draw = () => {
             ctx.clearRect(0, 0, width, height);
 
-            // Draw Grid
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+            // BG Grid
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
             ctx.lineWidth = 1;
+            const gridSize = 80;
 
-            // Vertical lines
-            const gridSize = 100;
-            const timeOffset = (Date.now() / 50) % gridSize;
-
-            for (let x = -timeOffset; x < width; x += gridSize) {
+            for (let x = 0; x < width; x += gridSize) {
                 ctx.beginPath();
                 ctx.moveTo(x, 0);
                 ctx.lineTo(x, height);
                 ctx.stroke();
             }
-
-            // Horizontal lines (static)
             for (let y = 0; y < height; y += gridSize) {
                 ctx.beginPath();
                 ctx.moveTo(0, y);
@@ -63,25 +58,40 @@ export function TradingBackground() {
                 ctx.stroke();
             }
 
-            // Draw Organic Chart Lines
-            lines.forEach(line => {
+            // Rendering loop
+            ctx.fillStyle = 'rgba(0, 240, 255, 0.4)';
+
+            nodes.forEach((node, i) => {
+                // Update position
+                node.x += node.vx;
+                node.y += node.vy;
+
+                // Bounce off walls
+                if (node.x < 0 || node.x > width) node.vx *= -1;
+                if (node.y < 0 || node.y > height) node.vy *= -1;
+
+                // Draw Node
                 ctx.beginPath();
-                ctx.strokeStyle = line.color;
-                ctx.lineWidth = 2;
+                ctx.arc(node.x, node.y, 1.5, 0, Math.PI * 2);
+                ctx.fill();
 
-                // Move line up/down slowly
-                // line.y += Math.sin(Date.now() / 1000) * 0.2; 
+                // Draw Connections
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const other = nodes[j];
+                    const dx = node.x - other.x;
+                    const dy = node.y - other.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
 
-                for (let i = 0; i < line.points.length - 1; i++) {
-                    const x = i * 20;
-                    // Shift points left
-                    // Simple sine wave simulation for "trading" look
-                    const yOffset = Math.sin((x + Date.now() * line.speed) / 100) * 50;
-
-                    if (i === 0) ctx.moveTo(x, line.y + yOffset);
-                    else ctx.lineTo(x, line.y + yOffset);
+                    if (dist < 150) {
+                        ctx.beginPath();
+                        // Opacity based on distance
+                        ctx.strokeStyle = `rgba(0, 240, 255, ${0.15 * (1 - dist / 150)})`;
+                        ctx.lineWidth = 1;
+                        ctx.moveTo(node.x, node.y);
+                        ctx.lineTo(other.x, other.y);
+                        ctx.stroke();
+                    }
                 }
-                ctx.stroke();
             });
 
             animationFrame = requestAnimationFrame(draw);

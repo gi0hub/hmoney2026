@@ -8,7 +8,7 @@ interface CatalogGridProps {
     selectedId: number;
 }
 
-// ... imports
+
 import { useState } from 'react';
 
 interface CatalogGridProps {
@@ -18,7 +18,7 @@ interface CatalogGridProps {
 }
 
 export function CatalogGrid({ onSelectItem, selectedId, itemStatuses = {} }: CatalogGridProps) {
-    //  items 1-100
+    // Generate 1..100
     const allItems = Array.from({ length: 100 }, (_, i) => i + 1);
 
     type FilterType = 'ALL' | 'LIVE' | 'SOLD';

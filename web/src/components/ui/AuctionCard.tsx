@@ -34,22 +34,21 @@ export function AuctionCard({
     actionLabel = "Place Bid",
     userCredits,
 }: AuctionCardProps) {
-    // Calculate progress percentage for the bar
+    // Progress calculation
     const progress = (timeLeftSeconds / totalTimeSeconds) * 100;
 
-    // State for custom bid amount
+    // Bid amount state
     const currentBidVal = parseInt(currentBid.replace(/,/g, '').replace(' Credits', '') || '0');
     const nextMinBid = currentBidVal + 50;
 
-    // We utilize a simple string state to handle empty inputs gracefully
+    // String state for input handling
     const [bidAmountStr, setBidAmountStr] = useState<string>(nextMinBid.toString());
 
-    // Sync state if currentBid changes exogenously (e.g. someone else bids)
+    // Sync on external updates
     useEffect(() => {
         setBidAmountStr((prev) => {
             const current = parseInt(prev || '0');
-            // If the current entered bid is now invalid (too low), bump it? 
-            // Or just let validation handle it. Let's auto-bump if it's the default minimum.
+            // Auto-bump if current is lower than minimum
             if (current < nextMinBid) return nextMinBid.toString();
             return prev;
         });
@@ -74,7 +73,7 @@ export function AuctionCard({
         }
     }
 
-    // Decide color based on tension (time left)
+    // State-based coloring
     const isUrgent = timeLeftSeconds < 60;
     const barColor = isUrgent ? 'bg-fuchsia-600' : 'bg-[var(--primary)]';
 
@@ -83,12 +82,14 @@ export function AuctionCard({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className={`relative w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-black/40 backdrop-blur-xl transition-all duration-500 hover:border-white/20
-        ${timeLeftSeconds > 0 ? 'animate-pulse-glow' : ''}
+            className={`relative w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-black/40 backdrop-blur-xl transition-all duration-500 hover:border-[var(--primary)] hover:shadow-[0_0_30px_rgba(0,240,255,0.15)] group
+        ${timeLeftSeconds > 0 ? 'animate-pulse-glow shadow-[0_0_15px_rgba(0,240,255,0.1)]' : ''}
       `}
         >
+            {/* Ambient glow */}
+            <div className="absolute inset-0 bg-gradient-to-br from-[var(--primary)]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
             {/* Image Section */}
-            <div className="relative h-64 w-full bg-zinc-900/50 flex items-center justify-center overflow-hidden">
+            <div className="relative h-64 w-full flex items-center justify-center overflow-hidden">
                 {visual ? (
                     <div className="w-full h-full p-8 transform hover:scale-105 transition-transform duration-500">
                         {visual}
@@ -108,7 +109,7 @@ export function AuctionCard({
                 </div>
             </div>
 
-            {/* Tension Progress Bar */}
+            {/* Progress bar */}
             <div className="h-1 w-full bg-white/5">
                 <motion.div
                     className={`h-full ${barColor} shadow-[0_0_10px_currentColor]`}
@@ -197,7 +198,7 @@ export function AuctionCard({
                             </button>
                         </div>
 
-                        {/* Visual Progress Bar */}
+                        {/* Progress Bar */}
                         <div className="relative h-2 w-full overflow-hidden rounded-full bg-white/10 mb-3">
                             <motion.div
                                 className="h-full bg-gradient-to-r from-red-500 to-red-600"

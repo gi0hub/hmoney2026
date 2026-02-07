@@ -135,15 +135,21 @@ export class DepositService {
 
             const auction = await contract.auctions(assetId);
 
-            if (auction[0] === 0n) {
-                console.log(`auction ${assetId} not init, initializing...`);
+            // auction struct: [winner, startTime, endTime, settled]
+            // Check startTime (index 1) to see if initialized
+            if (auction[1] === 0n) {
+                console.log(`[INFO] Auction ${assetId} not initialized. Starting now...`);
+                // Use backend timestamp
                 const now = Math.floor(Date.now() / 1000);
+                const duration = 11 * 24 * 60 * 60; // 11 Days
+
                 const start = now;
-                const end = now + 60; // 60 seconds for testing
+                const end = now + duration;
 
                 const initTx = await contract.initAuction(assetId, start, end);
+                console.log(`[PENDING] Init TX sent: ${initTx.hash}`);
                 await initTx.wait();
-                console.log(`init done: ${initTx.hash}`);
+                console.log(`[OK] Auction Initialized`);
             }
 
             const tx = await contract.setWinner(assetId, winnerAddress);

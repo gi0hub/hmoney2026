@@ -1,11 +1,11 @@
 # HyperDrop Relayer
 
-Backend service that bridges mainnet payments (Li.Fi) to Sepolia testnet credits via Yellow Nitrolite.
+Backend service that handles off-chain bidding signatures and on-chain settlement for the HyperDrop auction.
 
 ## Architecture
 
 ```
-User → Li.Fi (Mainnet) → Relayer API → Yellow (Sepolia) → User Credits
+User (Web) → Relayer API (/api/bid) → Yellow Nitrolite (Sepolia)
 ```
 
 ## Setup
@@ -32,32 +32,18 @@ Edit `.env` and fill in:
 SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
 RELAYER_PRIVATE_KEY=0xYOUR_PRIVATE_KEY
 
-# Mainnet (for verification)
-BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY
-ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
-
-# Yellow
-CLEARNODE_URL=wss://clearnet-sandbox.yellow.com/ws
-
 # API
 PORT=3001
 CORS_ORIGIN=http://localhost:3000
+
+# Yellow
+CLEARNODE_URL=wss://clearnet-sandbox.yellow.com/ws
 ```
 
 ### 3. Fund Relayer Wallet
 
-The relayer needs USDC testnet on Sepolia:
-
-#### Get Sepolia USDC (for deposits)
-USDC Contract: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
-
-Options:
-2. **Send to your relayer wallet**:
-   - ~50-100 USDC testnet should be enough for demos
-
-3. **Get Sepolia ETH** (for gas):
-   - https://sepoliafaucet.com
-   - ~0.1 ETH is enough
+The relayer needs Sepolia ETH to process `setWinner` transactions.
+- Get Sepolia ETH: https://sepoliafaucet.com
 
 ### 4. Start Server
 
@@ -74,107 +60,23 @@ npm run dev
 GET /health
 ```
 
-Response:
-```json
-{
-  "status": "healthy",
-  "relayer": "0x...",
-  "balance": {
-    "eth": "0.1",
-    "usdc": "50.0"
-  }
-}
-```
+### Place Bid (Off-Chain)
+Accepts a signed bid from the user and attempts to settle it on-chain if they win.
 
-### Bridge Mainnet → Testnet
 ```bash
-POST /api/bridge-to-testnet
+POST /api/bid
 Content-Type: application/json
 
 {
-  "txHash": "0x...",
-  "userAddress": "0x...",
-  "amount": "10.5",
-  "chainId": 8453
+  "itemId": 100,
+  "bidder": "0xUserAddress",
+  "amount": 500,
+  "signature": "0xSignature..."
 }
 ```
 
-Success Response:
-```json
-{
-  "success": true,
-  "message": "Credits deposited successfully",
-  "sepoliaHash": "0x...",
-  "credits": "10.5",
-  "mainnetTx": {
-    "hash": "0x...",
-    "from": "0x...",
-    "confirmations": 5
-  }
-}
-```
+## Deprecated Features
 
-Error Response:
-```json
-{
-  "success": false,
-  "error": "Transaction already processed",
-  "code": "TX_ALREADY_PROCESSED"
-}
-```
-
-## Testing
-
-1. **Check health**:
-```bash
-curl http://localhost:3001/health
-```
-
-2. **Test bridge** (replace with real TX):
-```bash
-curl -X POST http://localhost:3001/api/bridge-to-testnet \
-  -H "Content-Type: application/json" \
-  -d '{
-    "txHash": "0x123...",
-    "userAddress": "0x456...",
-    "amount": "1.0",
-    "chainId": 8453
-  }'
-```
-
-## Security
-
-- [OK] Rate limiting (10 requests/min per IP)
-- [OK] On-chain TX verification
-- [OK] Duplicate detection
-- [OK] Input validation
-- [OK] CORS protection
-
-## Troubleshooting
-
-### "Insufficient USDC balance"
-- Fund relayer wallet with testnet USDC
-- Check balance: GET /health
-
-### "Transaction not found"
-- Wait for mainnet confirmations
-- Check TX hash is correct
-- Verify chain ID matches
-
-### "SDK not initialized"
-- Check ClearNode URL is correct
-- Ensure Sepolia RPC is accessible
-- Verify contract addresses
-
-## Production Considerations
-
-For production deployment:
-
-1. **Use database** for processed TXs (not in-memory)
-2. **Add monitoring** (Sentry, Datadog)
-3. **Increase confirmations** (1 → 5+)
-4. **Add webhook notifications**
-5. **Implement wallet rotation**
-6. **Add admin endpoints** (pause, resume)
-7. **Use environment-specific configs**
+### Bridge (Mainnet → Testnet)
+*The automated Li.Fi bridge has been disabled on the frontend. The `/api/bridge-to-testnet` endpoint remains but is not currently used.*
 
