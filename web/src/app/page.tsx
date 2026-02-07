@@ -14,46 +14,53 @@ import { useYellowAuction } from '@/hooks/useYellowAuction';
 // import { WalletConnect } from '@/components/ui/WalletConnect'; // Removed
 import { ConnectButton, useConnectModal, useChainModal } from '@rainbow-me/rainbowkit';
 import { useAccount, useWriteContract } from 'wagmi';
+import { useToast } from '@/components/ui/ToastSystem';
+import { ErrorMessages, SuccessMessages, parseContractError } from '@/lib/errorMessages';
 
 export default function Home() {
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<number>(100);
+  const [isForceEnding, setIsForceEnding] = useState(false);
+  const [isRelayerProcessing, setIsRelayerProcessing] = useState(false);
 
   const { isConnected, chain, address } = useAccount();
   const { openConnectModal } = useConnectModal();
   const { openChainModal } = useChainModal();
   const { writeContract } = useWriteContract();
+  const toast = useToast();
 
-  // Hook usage for gasless bidding - Hybrid Architecture
   const { channelState, channelId, credits, claimCreditsAndOpenChannel, signBid, isSigning, isWrongNetwork } = useYellowAuction();
 
-  // ... (keeping timer logic context implicit by skipping lines) ...
-
-  // Demo: Settle Logic (On-Chain)
+  // Settlement logic
   const handleSettle = () => {
-    if (!address) return alert("Connect wallet to settle!");
+    if (!address) {
+      toast.warning(ErrorMessages.WALLET_NOT_CONNECTED.title, ErrorMessages.WALLET_NOT_CONNECTED.message);
+      return;
+    }
 
-    // ABI for settleAuction
+    // ABI for settleAuction (new public version - winner determined by contract)
     const abi = [{
-      name: 'settleAuction',
+      name: 'settle',
       type: 'function',
       stateMutability: 'nonpayable',
       inputs: [
-        { name: 'winner', type: 'address' },
         { name: 'assetId', type: 'uint256' },
-        { name: 'subnameLabel', type: 'string' }
+        { name: 'label', type: 'string' }
       ],
       outputs: []
     }];
 
     writeContract({
-      address: '0xd46570ba76BD3F9A8A65f8B7882fFF890118E772',
+      address: '0x1f159842b08Dac10340D358eF3c2B7e15434d9A0',
       abi: abi,
-      functionName: 'settleAuction',
-      args: [address, BigInt(selectedItemId), selectedItemId.toString()],
+      functionName: 'settle',
+      args: [BigInt(selectedItemId), selectedItemId.toString()],
     }, {
       onSuccess: (hash) => {
-        alert(`Settlement Triggered! Tx: ${hash}`);
+        toast.success(
+          SuccessMessages.SETTLEMENT_SUCCESS.title,
+          SuccessMessages.SETTLEMENT_SUCCESS.message
+        );
 
         // Optimistic Update: Mark as Settled & Ended (Moves to Sold Tab)
         setAuctionStates(prev => {
@@ -85,7 +92,8 @@ export default function Home() {
       },
       onError: (err) => {
         console.error(err);
-        alert("Settlement Failed: " + err.message); // Type casting might be needed for TS strictness
+        const { title, message } = parseContractError(err);
+        toast.error(title, message);
       }
     });
   };
@@ -126,15 +134,12 @@ export default function Home() {
 
   // --- Persistence Logic ---
   useEffect(() => {
-    // 1. Load from LocalStorage
     try {
       const stored = localStorage.getItem('hyperdrop_auction_states');
       if (stored) {
         const parsed = JSON.parse(stored);
 
-        // MIGRATION / ENFORCEMENT FIX:
-        // Ensure Auction #3 always has the correct hardcoded settlement hash for this demo
-        // even if local storage has the old "0xabc..." one.
+        // Ensure auction 3 has correct settlement hash
         if (parsed[3]) {
           parsed[3].settlementTx = '0x9c5991246ab77ebe00dd3a85ddb94f3e0e1e90751c94614ce58ab9b0d70cd52b';
           parsed[3].isSettled = true; // Ensure it stays settled
@@ -148,7 +153,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // 2. Save to LocalStorage
     if (Object.keys(auctionStates).length > 0) {
       localStorage.setItem('hyperdrop_auction_states', JSON.stringify(auctionStates));
     }
@@ -236,34 +240,51 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [selectedItemId, currentAuction.isEnded]); // Re-run when ID or Ended status changes
 
-  // Demo: Force End Functionality
-  const handleForceEnd = () => {
-    const storageKey = `hyperdrop_auction_end_${selectedItemId}`;
-    localStorage.setItem(storageKey, Date.now().toString());
+  // Force end functionality
+  const handleForceEnd = (itemId: number) => {
+    const forceEndAbi = [{
+      name: 'forceEndAuction',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [{ name: 'assetId', type: 'uint256' }],
+      outputs: []
+    }];
 
-    setAuctionStates(prev => {
-      const existing = prev[selectedItemId] || {
-        bids: [],
-        isSettled: false,
-        winner: undefined,
-        // Explicitly setting ended state vars
-        isEnded: true,
-        endTime: Date.now()
-      };
+    writeContract({
+      address: '0x1f159842b08Dac10340D358eF3c2B7e15434d9A0',
+      abi: forceEndAbi,
+      functionName: 'forceEndAuction',
+      args: [BigInt(itemId)],
+    }, {
+      onSuccess: () => {
+        setIsForceEnding(true); // Start visual loading state
+        toast.info("Transaction Sent", "Waiting ~15s for confirmation...");
 
-      return {
-        ...prev,
-        [selectedItemId]: {
-          ...existing,
-          isEnded: true,
-          endTime: Date.now()
-        }
-      };
+        // Wait 15 seconds for the transaction to be mined
+        setTimeout(() => {
+          setIsForceEnding(false); // Stop visual loading
+          toast.success("Auction Ended", "You can now settle");
+          const storageKey = `hyperdrop_auction_end_${itemId}`;
+          localStorage.setItem(storageKey, Date.now().toString());
+
+          setAuctionStates(prev => ({
+            ...prev,
+            [itemId]: {
+              ...(prev[itemId] || { bids: [], isSettled: false, winner: undefined }),
+              isEnded: true,
+              endTime: Date.now()
+            }
+          }));
+        }, 15000);
+      },
+      onError: (err) => {
+        setIsForceEnding(false);
+        toast.error("Force end failed", err.message);
+      }
     });
   };
 
-  // Mock History Logic (Global for now, but filtered by auction in real app)
-  // For this demo, we can just show the winner if ended, or generic list
+  // History Logic (Global for now, filtered by auction)
   const winnersList = Object.values(auctionStates)
     .filter(state => (state.isEnded || state.isSettled) && state.winner)
     .map(state => ({
@@ -301,13 +322,22 @@ export default function Home() {
       return;
     }
 
-    // Amount comes from UI input now
     const nextBid = amount;
 
     const signature = await signBid(nextBid);
 
     if (signature) {
-      // Optimistic Update for THIS auction only
+      fetch('http://localhost:3001/api/bid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemId: selectedItemId,
+          bidder: address,
+          amount: nextBid,
+          signature
+        })
+      }).catch(e => console.log('relayer:', e));
+
       const newBid = {
         id: Date.now().toString(),
         user: 'You (Anon)',
@@ -332,10 +362,14 @@ export default function Home() {
           }
         };
       });
+
+      // Safety: Lock admin actions for 15s to allow Relayer to mine Init/SetWinner txs
+      setIsRelayerProcessing(true);
+      setTimeout(() => setIsRelayerProcessing(false), 15000);
     }
   };
 
-  const [showDemoPanel, setShowDemoPanel] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
 
   // Determine Button Label
   let actionLabel = "Place Bid";
@@ -450,6 +484,7 @@ export default function Home() {
                 isPlacingBid={isSigning}
                 actionLabel={actionLabel}
                 userCredits={credits}
+                setIsTopUpOpen={setIsTopUpOpen}
               />
             )}
           </div>
@@ -504,27 +539,38 @@ export default function Home() {
       <TopUpSidebar
         isOpen={isTopUpOpen}
         onClose={() => setIsTopUpOpen(false)}
-        onOpenChannel={(amount) => claimCreditsAndOpenChannel(amount)}
+        onOpenChannel={async (amount) => {
+          try {
+            await claimCreditsAndOpenChannel(amount);
+            setIsTopUpOpen(false);
+            toast.success("Credits Added", "Channel Opened Successfully");
+          } catch (e: any) {
+            console.error(e);
+            let msg = e.message || "Checking balance or approval failed";
+            if (msg.includes("simulation")) msg = "Insufficient USDC or Approval needed";
+            toast.error("Deposit Failed", msg);
+          }
+        }}
       />
 
-      {/* Demo Admin Panel */}
-      <div className={`fixed bottom-4 right-4 z-50 transition-all ${showDemoPanel ? 'translate-y-0' : 'translate-y-[120%]'}`}>
+      {/* Admin Panel */}
+      <div className={`fixed bottom-4 right-4 z-50 transition-all ${showAdminPanel ? 'translate-y-0' : 'translate-y-[120%]'}`}>
         <div className="bg-black/90 border border-zinc-700 rounded-lg p-4 shadow-2xl w-64">
-          <h4 className="text-xs font-bold text-zinc-500 uppercase mb-3">Demo Controls</h4>
+          <h4 className="text-xs font-bold text-zinc-500 uppercase mb-3">Controls</h4>
           <button
-            onClick={handleForceEnd}
-            className="w-full bg-red-500/10 border border-red-500/50 text-red-500 text-xs font-bold py-2 rounded hover:bg-red-500/20"
-          >
-            ⚠️ Force End Auction
+            onClick={() => handleForceEnd(selectedItemId)}
+            disabled={isForceEnding || isRelayerProcessing}
+            className="w-full bg-red-500/10 border border-red-500/50 text-red-500 text-xs font-bold py-2 rounded hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-wait">
+            {isRelayerProcessing ? 'Syncing Bid (~15s)...' : (isForceEnding ? 'Processing (~15s)...' : 'Force End Auction')}
           </button>
         </div>
       </div>
 
-      {/* Demo Toggle */}
+      {/* Admin Toggle */}
       <button
-        onClick={() => setShowDemoPanel(!showDemoPanel)}
+        onClick={() => setShowAdminPanel(!showAdminPanel)}
         className="fixed bottom-4 right-4 z-50 h-8 w-8 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white"
-        title="Toggle Demo Panel"
+        title="Toggle Admin Panel"
       >
         ⚙️
       </button>

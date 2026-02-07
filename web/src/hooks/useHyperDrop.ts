@@ -3,11 +3,7 @@
 import { useReadContract, useAccount } from 'wagmi';
 import HyperDropABI from '@/abis/HyperDropProtocol.json';
 
-// In a real scenario, this address would come from environment variables or deployment output
-// For Hackathon, I might need to deploy first to get the address, 
-// OR I use a placeholder if not deployed yet.
-// I will use a placeholder const for now, meant to be updated.
-export const HYPERDROP_CONTRACT_ADDRESS = '0x42f6d3dd4b5d8d2290d7420d5bc05bb7ca94a65f';
+export const HYPERDROP_CONTRACT_ADDRESS = '0x1f159842b08Dac10340D358eF3c2B7e15434d9A0';
 
 export function useHyperDrop(itemId: string) {
     const { address } = useAccount();

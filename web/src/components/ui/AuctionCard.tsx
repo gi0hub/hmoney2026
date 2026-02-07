@@ -17,6 +17,7 @@ interface AuctionCardProps {
     isPlacingBid?: boolean;
     actionLabel?: string;
     userCredits?: number; // Optional access to user balance
+    setIsTopUpOpen?: (open: boolean) => void; // For Top Up button
 }
 
 export function AuctionCard({
@@ -28,6 +29,7 @@ export function AuctionCard({
     imageUrl = "https://placehold.co/600x400/1a1a1a/06b6d4?text=Exclusive+Merch",
     visual,
     onPlaceBid,
+    setIsTopUpOpen,
     isPlacingBid = false,
     actionLabel = "Place Bid",
     userCredits,
@@ -183,9 +185,46 @@ export function AuctionCard({
                     )}
                 </button>
                 {warningText && (
-                    <p className="text-center text-xs text-red-400">
-                        {warningText}
-                    </p>
+                    <div className="mt-3 overflow-hidden rounded-xl border border-red-500/20 bg-gradient-to-br from-red-500/5 to-red-600/10 p-4 backdrop-blur-sm">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-semibold uppercase tracking-wider text-red-400">Credit Balance</span>
+                            <button
+                                onClick={() => setIsTopUpOpen && setIsTopUpOpen(true)}
+                                className="text-xs font-bold text-[var(--primary)] hover:text-white transition-colors flex items-center gap-1"
+                            >
+                                <Zap size={12} />
+                                Top Up
+                            </button>
+                        </div>
+
+                        {/* Visual Progress Bar */}
+                        <div className="relative h-2 w-full overflow-hidden rounded-full bg-white/10 mb-3">
+                            <motion.div
+                                className="h-full bg-gradient-to-r from-red-500 to-red-600"
+                                initial={{ width: 0 }}
+                                animate={{ width: `${Math.min(((userCredits || 0) / bidVal) * 100, 100)}%` }}
+                                transition={{ duration: 0.5, ease: "easeOut" }}
+                            />
+                        </div>
+
+                        {/* Credits Info */}
+                        <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-zinc-400">You have:</span>
+                                    <span className="font-bold text-white">{userCredits || 0}</span>
+                                </div>
+                                <span className="text-zinc-600">/</span>
+                                <div className="flex items-center gap-1">
+                                    <span className="text-zinc-400">Required:</span>
+                                    <span className="font-bold text-red-400">{bidVal}</span>
+                                </div>
+                            </div>
+                            <span className="text-xs font-medium text-red-400">
+                                -{bidVal - (userCredits || 0)} short
+                            </span>
+                        </div>
+                    </div>
                 )}
             </div>
         </motion.div>

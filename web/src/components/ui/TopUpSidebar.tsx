@@ -15,27 +15,96 @@ interface TopUpSidebarProps {
 
 export function TopUpSidebar({ isOpen, onClose, onOpenChannel }: TopUpSidebarProps) {
     const [amount, setAmount] = useState('0.20'); // Default test amount
-    const [isBridging, setIsBridging] = useState(false);
+    const [isProcessingBridge, setIsProcessingBridge] = useState(false);
 
-    const handleBridgeSuccess = (route: any) => {
-        // In a Production App:
-        // 1. We would capture the 'txHash' from the route.
-        // 2. Send it to our backend "Relayer".
-        // 3. Relayer verifies the USDC deposit on Base.
-        // 4. Relayer calls the Yellow Network contract on Sepolia to mint credits.
+    const handleBridgeSuccess = async (route: any) => {
+        try {
+            setIsProcessingBridge(true);
 
-        // For Hackathon Demo:
-        // We simulate the "Relayer" receiving the event immediately.
-        console.log("Bridge Success Detected:", route);
+            console.log('LiFi Route:', route);
 
-        // Extract amount if possible, or fallback to default
-        // const bridgedAmount = route?.toAmountUSD || '10.00'; 
+            // Transaction Hash Extraction Strategy
+            let txHash = undefined;
+            const targetChainId = 8453; // Base
 
-        alert("✅ Bridge & Swap on Base Confirmed!\n\nHyperDrop Oracle has detected your deposit.\nMinting Credits on Sepolia now...");
+            // 1. Scan process list for destination hash
+            if (route.steps) {
+                for (const step of route.steps) {
+                    if (step.execution?.process) {
+                        for (const proc of step.execution.process) {
+                            if (proc.txLink && proc.txHash) {
+                                txHash = proc.txHash;
+                            }
+                        }
+                    }
+                }
+            }
 
-        if (onOpenChannel) {
-            onOpenChannel(amount); // Auto-trigger the credit claim
-            onClose();
+            // 2. Fallbacks
+            if (!txHash) {
+                txHash = route.toChainId === targetChainId ? route.transactionHash : route.steps?.[route.steps.length - 1]?.execution?.toTxHash;
+            }
+
+            if (!txHash && route.steps) {
+                const lastStep = route.steps[route.steps.length - 1];
+                if (lastStep.execution) {
+                    txHash = (lastStep.execution as any).toTxHash || (lastStep.execution as any).gasToken?.address;
+                }
+            }
+
+            // 3. Last resort scan
+            if (!txHash && route.steps) {
+                for (const step of route.steps) {
+                    if (step.execution?.process) {
+                        const processes = step.execution.process;
+                        if (processes.length > 0) {
+                            const lastProc = processes[processes.length - 1];
+                            if (lastProc.txHash) txHash = lastProc.txHash;
+                        }
+                    }
+                }
+            }
+
+            if (!txHash) txHash = route.transactionHash; // Give up and use main one
+
+            console.log('Extracted Hash:', txHash);
+            const amount = route.toAmountUSD || route.toAmount;
+            const chainId = route.toChainId || 8453;
+
+            if (!txHash) {
+                alert('no tx hash found');
+                return;
+            }
+
+            console.log('calling relayer...', txHash);
+
+            const relayerUrl = process.env.NEXT_PUBLIC_RELAYER_API_URL || 'http://localhost:3001';
+            const response = await fetch(`${relayerUrl}/api/bridge-to-testnet`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    txHash,
+                    userAddress: window.ethereum?.selectedAddress,
+                    amount: amount,
+                    chainId: chainId
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                alert(`Relayer error: ${data.error || 'Unknown error'}`);
+                return;
+            }
+
+            console.log('relayer success:', data);
+            alert(`Credits deposited! TX: ${data.txHash?.slice(0, 10)}...`);
+
+        } catch (error: any) {
+            console.error('bridge failed:', error);
+            alert(`Error: ${error.message}`);
+        } finally {
+            setIsProcessingBridge(false);
         }
     };
 
@@ -78,7 +147,7 @@ export function TopUpSidebar({ isOpen, onClose, onOpenChannel }: TopUpSidebarPro
                             <ClientOnly>
                                 <div className="mb-6">
                                     <div className="rounded-lg bg-[var(--primary)]/10 border border-[var(--primary)]/20 p-4 mb-4">
-                                        <p className="text-xs text-[var(--primary)] font-bold uppercase mb-2">⚡ Hybrid Architecture</p>
+                                        <p className="text-xs text-[var(--primary)] font-bold uppercase mb-2">Hybrid Architecture</p>
                                         <p className="text-sm text-zinc-300">
                                             1. You pay with <strong>Real Assets</strong> on Base (via Li.Fi).<br />
                                             2. Our <strong>Oracle</strong> detects the Tx.<br />
@@ -98,6 +167,7 @@ export function TopUpSidebar({ isOpen, onClose, onOpenChannel }: TopUpSidebarPro
                                         <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Manual Verification</label>
                                         <span className="text-[10px] text-zinc-600 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">Dev Mode</span>
                                     </div>
+
                                     <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
                                         <span className="text-zinc-400">$</span>
                                         <input
@@ -112,8 +182,7 @@ export function TopUpSidebar({ isOpen, onClose, onOpenChannel }: TopUpSidebarPro
                                 </div>
                                 <button
                                     onClick={() => {
-                                        onOpenChannel(amount);
-                                        onClose();
+                                        if (onOpenChannel) onOpenChannel(amount);
                                     }}
                                     className="w-full rounded-xl bg-white/5 border border-white/10 text-white font-bold py-3 hover:bg-white/10 transition-all text-sm"
                                 >

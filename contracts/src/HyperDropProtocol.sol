@@ -17,10 +17,33 @@ interface INameWrapper {
 }
 
 contract HyperDropProtocol is ERC1155, Ownable {
-    // The namehash of the protocol's domain (e.g., hyperdrop.eth)
     bytes32 public immutable ROOT_NODE;
-    // The ENS NameWrapper contract
     INameWrapper public immutable NAME_WRAPPER;
+
+    struct Auction {
+        address winner;
+        uint64 startTime;
+        uint64 endTime;
+        bool settled;
+    }
+
+    mapping(uint256 => Auction) public auctions;
+
+    event AuctionInitialized(
+        uint256 indexed assetId,
+        uint256 startTime,
+        uint256 endTime
+    );
+    event WinnerUpdated(
+        uint256 indexed assetId,
+        address indexed winner,
+        uint256 timestamp
+    );
+    event AuctionSettled(
+        uint256 indexed assetId,
+        address indexed winner,
+        string subnameLabel
+    );
 
     constructor(
         string memory uri_,
@@ -32,32 +55,82 @@ contract HyperDropProtocol is ERC1155, Ownable {
         NAME_WRAPPER = INameWrapper(_nameWrapper);
     }
 
-    /**
-     * @notice Settles an auction by minting the asset and assigning a subname.
-     * @dev Only callable by the auction operator (Yellow Network node).
-     * @param winner The address of the auction winner.
-     * @param assetId The ID of the asset to mint.
-     * @param subnameLabel The label for the subname (e.g., "100" for 100.hyperdrop.eth).
-     */
-    function settleAuction(
-        address winner,
-        uint256 assetId,
-        string calldata subnameLabel
-    ) external onlyOwner {
-        // 1. Mint the Item (ERC1155)
-        _mint(winner, assetId, 1, "");
+    function initAuction(uint256 assetId, uint256 start, uint256 end) external {
+        require(start < end, "bad times");
+        require(auctions[assetId].startTime == 0, "exists");
 
-        // 2. Issue a Subname
-        // Note: The protocol contract must be the owner of 'ROOT_NODE' in the NameWrapper
-        // for this to succeed (or have setSubnodeOwner permissions).
+        auctions[assetId] = Auction({
+            winner: address(0),
+            startTime: uint64(start),
+            endTime: uint64(end),
+            settled: false
+        });
+
+        emit AuctionInitialized(assetId, start, end);
+    }
+
+    // called by frontend after each bid
+    function setWinner(uint256 assetId, address winner) external {
+        Auction storage auction = auctions[assetId];
+
+        require(auction.startTime != 0, "not init");
+        require(block.timestamp >= auction.startTime, "too early");
+        require(block.timestamp < auction.endTime, "ended");
+        require(!auction.settled, "done");
+        require(winner != address(0), "zero addr");
+
+        auction.winner = winner;
+        emit WinnerUpdated(assetId, winner, block.timestamp);
+    }
+
+    function forceEndAuction(uint256 assetId) external {
+        Auction storage auction = auctions[assetId];
+        require(auction.startTime != 0, "not init");
+        require(!auction.settled, "already settled");
+
+        auction.endTime = uint64(block.timestamp - 1);
+    }
+
+    function settle(uint256 assetId, string calldata label) external {
+        Auction storage auction = auctions[assetId];
+
+        require(auction.winner != address(0), "no winner");
+        require(msg.sender == auction.winner, "not winner");
+        require(block.timestamp >= auction.endTime, "still running");
+        require(!auction.settled, "done");
+
+        auction.settled = true;
+
+        _mint(auction.winner, assetId, 1, "");
+
         NAME_WRAPPER.setSubnodeRecord(
             ROOT_NODE,
-            subnameLabel,
-            winner,
-            address(0), // No specific resolver script for MVP, using default or parent's if applicable
-            0, // Default TTL
-            0, // 0 fuses = Burnable, can transfer, etc.
-            0 // Default expiry (respects parent expiry)
+            label,
+            auction.winner,
+            address(0),
+            0,
+            0,
+            0
         );
+
+        emit AuctionSettled(assetId, auction.winner, label);
+    }
+
+    function auctionWinners(uint256 assetId) external view returns (address) {
+        return auctions[assetId].winner;
+    }
+
+    function auctionEndTimes(uint256 assetId) external view returns (uint256) {
+        return auctions[assetId].endTime;
+    }
+
+    function auctionSettled(uint256 assetId) external view returns (bool) {
+        return auctions[assetId].settled;
+    }
+
+    function auctionStartTimes(
+        uint256 assetId
+    ) external view returns (uint256) {
+        return auctions[assetId].startTime;
     }
 }

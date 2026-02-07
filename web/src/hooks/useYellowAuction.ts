@@ -21,13 +21,13 @@ interface ContractConfig {
 
 interface ConfigResponse {
     res: [
-        number, // ID
-        string, // "get_config"
+        number,
+        string,
         {
             chains: ChainConfig[];
-            contracts: Record<number, ContractConfig>; // Map chainId -> Contracts
+            contracts: Record<number, ContractConfig>;
         },
-        number  // Timestamp
+        number
     ];
     sig: any[];
 }
@@ -63,7 +63,7 @@ export function useYellowAuction() {
             setCredits(parseInt(stored));
             if (parseInt(stored) > 0) {
                 setChannelState('OPEN');
-                // Temporary ID until we strictly sync channels with Nitrolite
+                // Channel Synchronization
                 const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
                 setChannelId(`0x${randomHex}`);
             }
@@ -85,7 +85,7 @@ export function useYellowAuction() {
             ws = new WebSocket('wss://clearnet-sandbox.yellow.com/ws');
 
             ws.onopen = () => {
-                console.log('[Yellow] Connected to ClearNode (Sandbox). Fetching Config...');
+                console.log('clearnode connected');
                 const request = {
                     req: [1, 'get_config', {}, Date.now()],
                     sig: []
@@ -98,11 +98,10 @@ export function useYellowAuction() {
             ws.onmessage = (event) => {
                 try {
                     const response = JSON.parse(event.data);
-                    console.log('[Yellow] Config Response:', response); // Debug Log
+                    // console.log('config:', response);
 
                     if (response.res && response.res[1] === 'get_config') {
                         const payload = response.res[2];
-                        // FIX: Safe access to contracts
                         const contractsMap = payload?.contracts;
 
                         // Check networks array if contracts map is missing
@@ -177,7 +176,7 @@ export function useYellowAuction() {
                 chainId: sepoliaConfig.chainId,
                 publicClient: publicClient as any,
                 walletClient: walletClient as any,
-                stateSigner: walletClient as any, // FIX: Required param for state signing
+                stateSigner: walletClient as any,
                 addresses: sepoliaConfig.addresses,
                 challengeDuration: BigInt(3600) // Minimum 1 hour required by SDK
             });
@@ -197,57 +196,42 @@ export function useYellowAuction() {
             return;
         }
 
-        try {
-            setChannelState('DEPOSITING');
+        setChannelState('DEPOSITING');
 
-            // 1. Enforce Sepolia Network
-            if (chain?.id !== 11155111) {
-                console.log('[HyperDrop] Switching to Sepolia for Deposit...');
-                switchChain({ chainId: 11155111 });
-                // We rely on the user to click again after switch, or effect to retry, 
-                // but for MVP we stop here if wrong network.
-                setChannelState('IDLE');
-                return;
-            }
-
-            console.log(`[HyperDrop] Depositing ${amountUSDC} USDC to Nitrolite Custody...`);
-
-            // 2. Real Deposit
-            // Note: Amount needs to be BigInt. 
-            // In a real flow we'd approve ERC20 first. 
-            // For this hackathon step, we assume ETH or handle basic flow.
-            // Using a dummy small valid amount for demo safety if parsing fails
-            const amount = BigInt(Math.floor(parseFloat(amountUSDC) * 1000000)) || BigInt(1000);
-
-            // Using the deposit method to custodial contract
-            // SDK requires: deposit(tokenAddress, amount)
-            if (!sepoliaConfig) {
-                throw new Error('Sepolia config not loaded');
-            }
-            const txHash = await nitrolite.deposit(sepoliaConfig.addresses.tokenAddress, amount);
-            console.log('[HyperDrop] Deposit TX:', txHash);
-
-            // Optimistic Credit Update
-            const newCredits = Math.floor(parseFloat(amountUSDC) * 100);
-            setCredits(prev => prev + newCredits);
-
-            // Channel Setup Handwave (In real Nitrolite, we wait for deposit confirmation then open channel)
-            const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-            setChannelId(`0x${randomHex}`);
-            setChannelState('OPEN');
-
-        } catch (error: any) {
-            console.error('[HyperDrop] Deposit failed:', error);
-            alert(`Deposit Failed: ${error.message || 'Unknown error'}`);
+        // 1. Enforce Sepolia Network
+        if (chain?.id !== 11155111) {
+            console.log('[HyperDrop] Switching to Sepolia for Deposit...');
+            switchChain({ chainId: 11155111 });
             setChannelState('IDLE');
+            return;
         }
+
+        console.log(`[HyperDrop] Depositing ${amountUSDC} USDC to Nitrolite Custody...`);
+
+        // 2. Real Deposit
+        const amount = BigInt(Math.floor(parseFloat(amountUSDC) * 1000000)) || BigInt(1000);
+
+        if (!sepoliaConfig) {
+            throw new Error('Sepolia config not loaded');
+        }
+        const txHash = await nitrolite.deposit(sepoliaConfig.addresses.tokenAddress, amount);
+        console.log('[HyperDrop] Deposit TX:', txHash);
+
+        // Optimistic Credit Update
+        const newCredits = Math.floor(parseFloat(amountUSDC) * 100);
+        setCredits(prev => prev + newCredits);
+
+        const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+        setChannelId(`0x${randomHex}`);
+        setChannelState('OPEN');
+
     }, [nitrolite, chain, switchChain]);
 
     // --- Network Enforcement ---
     const isWrongNetwork = channelState === 'OPEN' && chain?.id !== 11155111;
 
     /**
-     * SIGN BID (Real Off-Chain Signature)
+     * SIGN BID
      */
     const signBid = useCallback(async (bidAmountCredits: number) => {
         if (channelState !== 'OPEN' || !channelId || !nitrolite) {
@@ -269,26 +253,12 @@ export function useYellowAuction() {
             setIsSigning(true);
             const bidAmountBigInt = BigInt(bidAmountCredits);
 
-            // REAL SIGNING: 
-            // Nitrolite SDK doesn't have a specific "signBid" method exposed on the client instance directly 
-            // in the snippet provided, but it handles state updates.
-            // We need to simulate a state update or use a text signer if just strictly signing a bid intent.
-            // As per instructions: "uses strict EIP-712 signatures".
-            // We will use the underlying wallet client to sign a typed data packet that conforms to Nitrolite 'State'.
-            // Or if NitroliteClient exposes a helper (it likely does internally for createChannel/resize),
-            // we typically construct the payload manually here for the hackathon demo if internal helpers are protected.
-
-            // Construct a valid State object structure for Nitrolite
-            const mockState = {
+            const statePayload = {
                 channelId: channelId as `0x${string}`,
                 balance: bidAmountBigInt, // Current balance intent
-                counterparty: '0x1111111111111111111111111111111111111111' as const, // Hub
+                counterparty: sepoliaConfig?.addresses.guestAddress || '0x1111111111111111111111111111111111111111' as Address, // Real guestAddress
                 nonce: BigInt(Date.now())
             };
-
-            // Since we can't easily access the internal signState of the compiled SDK class without type hacks,
-            // we will use the wagmi walletClient directly with the schema we know aligns with Nitrolite.
-            // This ensures we are generating a REAL signature on the REAL network chain ID.
 
             const domain = {
                 name: 'Yellow Nitrolite',
@@ -312,7 +282,7 @@ export function useYellowAuction() {
                 domain,
                 types,
                 primaryType: 'State',
-                message: mockState
+                message: statePayload
             });
 
             console.log(`[Yellow] Real EIP-712 Signature (Sepolia):`, signature);

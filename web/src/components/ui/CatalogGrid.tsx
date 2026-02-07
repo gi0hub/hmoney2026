@@ -26,7 +26,6 @@ export function CatalogGrid({ onSelectItem, selectedId, itemStatuses = {} }: Cat
 
     const filteredItems = allItems.filter(id => {
         if (filter === 'ALL') return true;
-        // Default to 'live' if not in statuses (for demo purposes)
         const status = itemStatuses[id.toString()] || 'live';
         if (filter === 'LIVE') return status === 'live';
         if (filter === 'SOLD') return status === 'sold';

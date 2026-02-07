@@ -9,20 +9,21 @@ contract Settle is Script {
         // 1. Get Environment Variables
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address contractAddress = vm.envAddress("CONTRACT_ADDRESS");
-
-        // Settlement Details
-        address winnerAddress = vm.envAddress("WINNER_ADDRESS");
         uint256 assetId = vm.envUint("ASSET_ID");
-        string memory subnameLabel = vm.envString("SUBNAME_LABEL");
+        string memory label = vm.envString("SUBNAME_LABEL");
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
 
         // 2. Load Contract
         HyperDropProtocol hyperDrop = HyperDropProtocol(contractAddress);
 
-        // 3. Settle Auction (Mint NFT + Issue ENS Subname)
-        hyperDrop.settleAuction(winnerAddress, assetId, subnameLabel);
+        // 3. Settle Auction (as the winner)
+        hyperDrop.settle(assetId, label);
 
         vm.stopBroadcast();
+
+        console.log("settled!");
+        console.log("asset:", assetId);
+        console.log("label:", label);
     }
 }

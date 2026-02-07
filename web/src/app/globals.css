@@ -4,17 +4,19 @@
   /* Cyber-Minimalism Palette */
   --background: #050505;
   --foreground: #ededed;
-  
-  --primary: #00f0ff; /* Electric Cyan */
+
+  --primary: #00f0ff;
+  /* Electric Cyan */
   --primary-glow: rgba(0, 240, 255, 0.4);
-  
+
   --surface: #0a0a0a;
   --surface-border: #1f1f1f;
-  
+
   --glitch-color-1: #ff00ff;
   --glitch-color-2: #00ffff;
-  
-  --font-mono: 'Space Mono', monospace; /* Placeholder, will use default mono for now */
+
+  --font-mono: 'Space Mono', monospace;
+  /* Placeholder, will use default mono for now */
 }
 
 body {
@@ -38,9 +40,17 @@ body {
 
 /* Animations */
 @keyframes pulse-glow {
-  0% { box-shadow: 0 0 5px var(--primary-glow); }
-  50% { box-shadow: 0 0 20px var(--primary-glow); }
-  100% { box-shadow: 0 0 5px var(--primary-glow); }
+  0% {
+    box-shadow: 0 0 5px var(--primary-glow);
+  }
+
+  50% {
+    box-shadow: 0 0 20px var(--primary-glow);
+  }
+
+  100% {
+    box-shadow: 0 0 5px var(--primary-glow);
+  }
 }
 
 .animate-pulse-glow {

@@ -64,7 +64,7 @@ contract HyperDropTest is Test {
 
         // Execute as owner
         vm.prank(owner);
-        hyperDrop.settleAuction(winner, assetId, label);
+        hyperDrop.settleAuctionLegacy(winner, assetId, label);
 
         // Verify Balances
         assertEq(hyperDrop.balanceOf(winner, assetId), 1);
@@ -84,6 +84,6 @@ contract HyperDropTest is Test {
 
         // Execute as non-owner (winner)
         vm.prank(winner);
-        hyperDrop.settleAuction(winner, assetId, label);
+        hyperDrop.settleAuctionLegacy(winner, assetId, label);
     }
 }
